@@ -95,7 +95,7 @@ vector<Track::Ptr> MediaSource::getTracks(bool ready) const {
     if(!listener){
         return vector<Track::Ptr>();
     }
-    return listener->getTracks(const_cast<MediaSource &>(*this), ready);
+    return listener->getMediaTracks(const_cast<MediaSource &>(*this), ready);
 }
 
 void MediaSource::setListener(const std::weak_ptr<MediaSourceEvent> &listener){
@@ -155,6 +155,22 @@ bool MediaSource::seekTo(uint32_t stamp) {
         return false;
     }
     return listener->seekTo(*this, stamp);
+}
+
+bool MediaSource::pause(bool pause) {
+    auto listener = _listener.lock();
+    if (!listener) {
+        return false;
+    }
+    return listener->pause(*this, pause);
+}
+
+bool MediaSource::speed(float speed) {
+    auto listener = _listener.lock();
+    if (!listener) {
+        return false;
+    }
+    return listener->speed(*this, speed);
 }
 
 bool MediaSource::close(bool force) {
@@ -537,11 +553,6 @@ void MediaSourceEvent::onReaderChanged(MediaSource &sender, int size){
 
         if (!is_mp4_vod) {
             //直播时触发无人观看事件，让开发者自行选择是否关闭
-            WarnL << "无人观看事件:"
-                  << strong_sender->getSchema() << "/"
-                  << strong_sender->getVhost() << "/"
-                  << strong_sender->getApp() << "/"
-                  << strong_sender->getId();
             NoticeCenter::Instance().emitEvent(Broadcast::kBroadcastStreamNoneReader, *strong_sender);
         } else {
             //这个是mp4点播，我们自动关闭
@@ -586,6 +597,22 @@ bool MediaSourceEventInterceptor::seekTo(MediaSource &sender, uint32_t stamp) {
         return false;
     }
     return listener->seekTo(sender, stamp);
+}
+
+bool MediaSourceEventInterceptor::pause(MediaSource &sender, bool pause) {
+    auto listener = _listener.lock();
+    if (!listener) {
+        return false;
+    }
+    return listener->pause(sender, pause);
+}
+
+bool MediaSourceEventInterceptor::speed(MediaSource &sender, float speed) {
+    auto listener = _listener.lock();
+    if (!listener) {
+        return false;
+    }
+    return listener->speed(sender, speed);
 }
 
 bool MediaSourceEventInterceptor::close(MediaSource &sender, bool force) {
@@ -636,12 +663,12 @@ bool MediaSourceEventInterceptor::isRecording(MediaSource &sender, Recorder::typ
     return listener->isRecording(sender, type);
 }
 
-vector<Track::Ptr> MediaSourceEventInterceptor::getTracks(MediaSource &sender, bool trackReady) const {
+vector<Track::Ptr> MediaSourceEventInterceptor::getMediaTracks(MediaSource &sender, bool trackReady) const {
     auto listener = _listener.lock();
     if (!listener) {
         return vector<Track::Ptr>();
     }
-    return listener->getTracks(sender, trackReady);
+    return listener->getMediaTracks(sender, trackReady);
 }
 
 void MediaSourceEventInterceptor::startSendRtp(MediaSource &sender, const string &dst_url, uint16_t dst_port, const string &ssrc, bool is_udp, uint16_t src_port, const function<void(uint16_t local_port, const SockException &ex)> &cb){
