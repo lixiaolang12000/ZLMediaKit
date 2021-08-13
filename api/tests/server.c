@@ -159,7 +159,47 @@ void API_CALL on_mk_http_request(const mk_parser parser,
                mk_parser_get_header(parser, "User-Agent"),
                mk_parser_get_content(parser,NULL));
 
+    log_printf(LOG_LEV, "recv http request, method: %s, url:%s", mk_parser_get_method(parser), mk_parser_get_url(parser));
+
     const char *url = mk_parser_get_url(parser);
+    if (strcmp(mk_parser_get_method(parser), "PUT") == 0) {
+        *consumed = 1;
+        const char *response_header[] = {"Content-Type","text/html",NULL};
+        const char *content =
+                        "<html>"
+                        "<head>"
+                        "<title>hello world</title>"
+                        "</head>"
+                        "<body bgcolor=\"white\">"
+                        "<center><h1>hello world</h1></center><hr>"
+                        "<center>""ZLMediaKit-4.0</center>"
+                        "</body>"
+                        "</html>";
+        mk_http_body body = mk_http_body_from_string(content,0);
+        mk_http_response_invoker_do(invoker, 200, response_header, body);
+        mk_http_body_release(body);
+        return;
+    }
+
+    if (strcmp(mk_parser_get_method(parser), "DELETE") == 0) {
+        *consumed = 1;
+        const char *response_header[] = {"Content-Type","text/html",NULL};
+        const char *content =
+                        "<html>"
+                        "<head>"
+                        "<title>hello world</title>"
+                        "</head>"
+                        "<body bgcolor=\"white\">"
+                        "<center><h1>hello world</h1></center><hr>"
+                        "<center>""ZLMediaKit-4.0</center>"
+                        "</body>"
+                        "</html>";
+        mk_http_body body = mk_http_body_from_string(content,0);
+        mk_http_response_invoker_do(invoker, 200, response_header, body);
+        mk_http_body_release(body);
+        return;
+    }
+
     if(strcmp(url,"/api/test") != 0){
         *consumed = 0;
         return;

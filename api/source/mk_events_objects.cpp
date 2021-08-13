@@ -124,6 +124,18 @@ API_EXPORT const char* API_CALL mk_parser_get_content(const mk_parser ctx, size_
     return parser->Content().c_str();
 }
 
+API_EXPORT const size_t API_CALL mk_parser_get_content_len(const mk_parser ctx) {
+    assert(ctx);
+    Parser *parser = (Parser *)ctx;
+    return parser->Content().size();
+}
+
+API_EXPORT void API_CALL mk_parser_get_raw_content(const mk_parser ctx, void *buffer, size_t buffer_len) {
+    assert(ctx);
+    Parser *parser = (Parser *)ctx;
+    memcpy(buffer, parser->Content().data(), buffer_len > parser->Content().size() ? parser->Content().size() : buffer_len);
+}
+
 ///////////////////////////////////////////MediaInfo/////////////////////////////////////////////
 API_EXPORT const char* API_CALL mk_media_info_get_params(const mk_media_info ctx){
     assert(ctx);

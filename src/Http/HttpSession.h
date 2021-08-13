@@ -104,6 +104,8 @@ private:
     void Handle_Req_GET(ssize_t &content_len);
     void Handle_Req_GET_l(ssize_t &content_len, bool sendBody);
     void Handle_Req_POST(ssize_t &content_len);
+    void Handle_Req_PUT(ssize_t &content_len);
+    void Handle_Req_DELETE(ssize_t &content_len);
     void Handle_Req_HEAD(ssize_t &content_len);
     void Handle_Req_OPTIONS(ssize_t &content_len);
 

@@ -40,10 +40,10 @@ void HttpSession::Handle_Req_HEAD(ssize_t &content_len){
 
 void HttpSession::Handle_Req_OPTIONS(ssize_t &content_len) {
     KeyValue header;
-    header.emplace("Allow", "GET, POST, OPTIONS");
+    header.emplace("Allow", "GET, POST, PUT, DELETE, OPTIONS");
     header.emplace("Access-Control-Allow-Origin", "*");
     header.emplace("Access-Control-Allow-Credentials", "true");
-    header.emplace("Access-Control-Request-Methods", "GET, POST, OPTIONS");
+    header.emplace("Access-Control-Request-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     header.emplace("Access-Control-Request-Headers", "Accept,Accept-Language,Content-Language,Content-Type");
     sendResponse(200, true, nullptr, header);
 }
@@ -54,6 +54,8 @@ ssize_t HttpSession::onRecvHeader(const char *header,size_t len) {
     static onceToken token([]() {
         s_func_map.emplace("GET",&HttpSession::Handle_Req_GET);
         s_func_map.emplace("POST",&HttpSession::Handle_Req_POST);
+        s_func_map.emplace("PUT",&HttpSession::Handle_Req_PUT);
+        s_func_map.emplace("DELETE",&HttpSession::Handle_Req_DELETE);
         s_func_map.emplace("HEAD",&HttpSession::Handle_Req_HEAD);
         s_func_map.emplace("OPTIONS",&HttpSession::Handle_Req_OPTIONS);
     }, nullptr);
@@ -718,6 +720,35 @@ void HttpSession::Handle_Req_POST(ssize_t &content_len) {
         };
     }
     //有后续content数据要处理,暂时不关闭连接
+}
+
+void HttpSession::Handle_Req_PUT(ssize_t &content_len) {
+    Handle_Req_POST(content_len);
+}
+
+void HttpSession::Handle_Req_DELETE(ssize_t &content_len) {
+    // copy from Handle_Req_GET
+    if (emitHttpEvent(false)) {
+        //拦截http api事件
+        return;
+    }
+    
+    bool bClose = !strcasecmp(_parser["Connection"].data(),"close");
+    weak_ptr<HttpSession> weakSelf = dynamic_pointer_cast<HttpSession>(shared_from_this());
+    HttpFileManager::onAccessPath(*this, _parser, [weakSelf, bClose](int code, const string &content_type,
+                                                                     const StrCaseMap &responseHeader, const HttpBody::Ptr &body) {
+        auto strongSelf = weakSelf.lock();
+        if (!strongSelf) {
+            return;
+        }
+        strongSelf->async([weakSelf, bClose, code, content_type, responseHeader, body]() {
+            auto strongSelf = weakSelf.lock();
+            if (!strongSelf) {
+                return;
+            }
+            strongSelf->sendResponse(code, bClose, content_type.data(), responseHeader, body);
+        });
+    });
 }
 
 void HttpSession::sendNotFound(bool bClose) {

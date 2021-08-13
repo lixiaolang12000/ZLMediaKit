@@ -59,7 +59,8 @@ API_EXPORT const char* API_CALL mk_parser_get_tail(const mk_parser ctx);
 API_EXPORT const char* API_CALL mk_parser_get_header(const mk_parser ctx,const char *key);
 //Parser::Content(),获取HTTP body
 API_EXPORT const char* API_CALL mk_parser_get_content(const mk_parser ctx, size_t *length);
-
+API_EXPORT const size_t API_CALL mk_parser_get_content_len(const mk_parser ctx);
+API_EXPORT void API_CALL mk_parser_get_raw_content(const mk_parser ctx, void *buffer, size_t buffer_len);
 ///////////////////////////////////////////MediaInfo/////////////////////////////////////////////
 //MediaInfo对象的C映射
 typedef void* mk_media_info;
