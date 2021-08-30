@@ -533,6 +533,11 @@ void HttpSession::sendResponse(int code,
     HttpSession::KeyValue &headerOut = const_cast<HttpSession::KeyValue &>(header);
     headerOut.emplace(kDate, dateStr());
     headerOut.emplace(kServer, SERVER_NAME);
+    headerOut.emplace("Access-Control-Allow-Origin", "*");
+    headerOut.emplace("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE");
+    headerOut.emplace("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+    headerOut.emplace("Access-Control-Expose-Headers", "Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Cache-Control, Content-Language, Content-Type");
+    headerOut.emplace("Access-Control-Allow-Credentials", "true");
     headerOut.emplace(kConnection, bClose ? "close" : "keep-alive");
     if(!bClose){
         string keepAliveString = "timeout=";
