@@ -153,7 +153,7 @@ void on_mk_ffmpeg_close_callback(void *user_data, const char* key) {
 }
 
 void context_start(Context *ctx, const char *url_pull, const char *url_push){
-#if 0
+#if 1
     release_player(&(ctx->player));
     ctx->player = mk_player_create();
     mk_player_set_on_result(ctx->player, on_mk_play_event_func, ctx);
@@ -196,14 +196,14 @@ int main(int argc, char *argv[]){
     //rtmp://127.0.0.1/live/test
     //rtsp://127.0.0.1/live/test
     //播放mk_media的数据
-    mk_rtsp_server_start(554, 0);
-    mk_rtmp_server_start(1935, 0);
+    //mk_rtsp_server_start(554, 0);
+    //mk_rtmp_server_start(1935, 0);
 
     Context *ctx = (Context *)malloc(sizeof(Context));
     memset(ctx, 0, sizeof(Context));
 
     //推流给自己测试，当然也可以推流给其他服务器测试
-    context_start(ctx, "rtsp://admin:1qaz2wsx@deepir12.iok.la:2554/media/video0", "rtmp://127.0.0.1/live/test");
+    context_start(ctx, "rtsp://admin:1qaz2wsx@192.168.10.240:554/Streaming/Channels/102", "rtmp://build.cscecxn.com/live/jtzd_xianchangxice_chumenfangxiang/2/video");
 
     int i = 10 * 60;
     while(--i){

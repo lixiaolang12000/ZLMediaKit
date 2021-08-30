@@ -15,6 +15,9 @@
 #include "System.h"
 #include "Thread/WorkThreadPool.h"
 #include "Network/sockutil.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 namespace FFmpeg {
 #define FFmpeg_FIELD "ffmpeg."
@@ -213,7 +216,27 @@ void FFmpegSource::startTimer(int timeout_ms) {
             });
         } else {
             //推流给其他服务器的，我们通过判断FFmpeg进程是否在线，如果FFmpeg推流中断，那么它应该会自动退出
-            if (!strongSelf->_process.wait(false)) {
+            bool ffmpeg_exists = strongSelf->_process.wait(false);
+            // 根据ffmpeg进程id查看对应日志最近的更新时间，超过1分钟则认为ffmpeg阻塞了，重启
+            bool ffmpeg_block = false;
+            std::string ffmpeg_log_file = strongSelf->_process.log_file();
+            if (ffmpeg_log_file != "/dev/null") {
+                if (access(ffmpeg_log_file.c_str(), R_OK) == 0) {
+                    struct stat file_stat;
+                    if (stat(ffmpeg_log_file.c_str(), &file_stat) == 0) {
+                        time_t now;
+                        time(&now);
+                        if (now - file_stat.st_mtime > 60) {
+                            WarnL << ffmpeg_log_file << " last modify:" << file_stat.st_mtim.tv_sec << " now:" << now << " , ffmpeg maybe blocked, need kill ffmpeg";
+                            ffmpeg_block = true;
+                        }
+                    }
+                }
+            }
+            
+            
+            if (!ffmpeg_exists
+            || ffmpeg_block) { // ffmpeg日志超过1分钟没有更新，应该是卡主了，重新拉流
                 //ffmpeg不在线，重新拉流
                 strongSelf->play(strongSelf->_ffmpeg_cmd_key, strongSelf->_src_url, strongSelf->_dst_url, timeout_ms, [weakSelf](const SockException &ex) {
                     if(!ex){
@@ -228,7 +251,8 @@ void FFmpegSource::startTimer(int timeout_ms) {
                     //上次重试时间超过10秒，那么再重试FFmpeg拉流
                     strongSelf->startTimer(10 * 1000);
                 });
-            }
+            } 
+            
         }
         return true;
     }, _poller);

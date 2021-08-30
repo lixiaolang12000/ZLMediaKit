@@ -22,8 +22,10 @@ static recursive_mutex s_ffmpegContextMapMtx;
 
 const char* mk_add_ffmpeg_source(const char* src_url, const char* dst_url, int timeout_ms, on_mk_ffmpeg_close cb, void* user_data) {
 
-    const char *ffmpeg_cmd = "%s -rtsp_transport tcp  -i %s -vcodec copy -acodec copy -f flv %s";
-    //const char *ffmpeg_cmd = "%s -re -rtsp_transport tcp -i %s -c:a aac -strict -2 -ar 44100 -ab 48k -s 1920x1080 -c:v libx264 -f flv %s";
+    //const char *ffmpeg_cmd = "%s -rtsp_transport tcp  -i %s -vcodec copy -acodec copy -f flv %s";
+    //const char *ffmpeg_cmd = "%s -re -rtsp_transport tcp -i %s -vcodec h264 -acodec copy -f flv %s";
+    // 10秒超时
+    const char *ffmpeg_cmd = "%s -re -rtsp_transport tcp -i %s -vcodec libx264  -bf 0 -tune:v zerolatency -profile:v baseline -preset:v ultrafast -an -rw_timeout 10000000 -stimeout 10000000  -f flv %s";
    
     auto key = MD5(dst_url).hexdigest();
     {
@@ -84,8 +86,13 @@ const char* mk_add_ffmpeg_source(const char* src_url, const char* dst_url, int t
     while (!finished) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    InfoL << "ffmpeg key:" << result_key;
-    return result_key;
+    if (result_key) {
+        InfoL << "ffmpeg key:" << result_key;
+        return "";
+    } else {
+        WarnL << "start ffmpeg source failed.";
+        return result_key;
+    }    
 }
 
 void mk_del_ffmpeg_source(const char* key) {

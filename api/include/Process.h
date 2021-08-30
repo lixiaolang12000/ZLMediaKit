@@ -25,12 +25,15 @@ class Process {
 public:
     Process();
     ~Process();
+    std::string log_file() const;
     void run(const string &cmd,const string &log_file);
     void kill(int max_delay,bool force = false);
     bool wait(bool block = true);
     int exit_code();
 private:
+    std::string _log_file;
     pid_t _pid = -1;
+    pid_t _parent_pid = -1;
     void *_handle = nullptr;
     int _exit_code = 0;
 };

@@ -29,6 +29,10 @@
 #include "Process.h"
 using namespace toolkit;
 
+std::string Process::log_file() const {
+    return _log_file;
+}
+
 void Process::run(const string &cmd, const string &log_file_tmp) {
     kill(2000);
 #ifdef _WIN32
@@ -75,6 +79,7 @@ void Process::run(const string &cmd, const string &log_file_tmp) {
         throw std::runtime_error(StrPrinter << "fork child process failed,err:" << get_uv_errmsg());
     }
     if (_pid == 0) {
+        _parent_pid = getppid();
         string log_file;
         if (log_file_tmp.empty()) {
             //未指定子进程日志文件时，重定向至/dev/null
@@ -82,6 +87,7 @@ void Process::run(const string &cmd, const string &log_file_tmp) {
         } else {
             log_file = StrPrinter << log_file_tmp << "." << getpid();
         }
+        _log_file = log_file;
         //子进程关闭core文件生成
         struct rlimit rlim = {0, 0};
         setrlimit(RLIMIT_CORE, &rlim);
@@ -129,6 +135,22 @@ void Process::run(const string &cmd, const string &log_file_tmp) {
         }
         // EOF: NULL
         charpv_params[params.size()] = NULL;
+
+        // check parent exists.
+        #include <thread>
+        #include <chrono>
+        std::thread monitor([this](){
+                int signum = SIGTERM;
+                union sigval value;
+                value.sival_int = 0;
+                auto pid = _parent_pid;
+                if (sigqueue(pid, signum, value) < 0) {
+                    printf("parent not exists, pid:%d", _parent_pid);
+                    exit(0);
+                }
+
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+        });
 
         // TODO: execv or execvp
         auto ret = execv(params[0].c_str(), charpv_params);
