@@ -25,7 +25,7 @@ const char* mk_add_ffmpeg_source(const char* src_url, const char* dst_url, int t
     //const char *ffmpeg_cmd = "%s -rtsp_transport tcp  -i %s -vcodec copy -acodec copy -f flv %s";
     //const char *ffmpeg_cmd = "%s -re -rtsp_transport tcp -i %s -vcodec h264 -acodec copy -f flv %s";
     // 10秒超时
-    const char *ffmpeg_cmd = "%s -re -rtsp_transport tcp -i %s -vcodec libx264  -bf 0 -tune:v zerolatency -profile:v baseline -preset:v ultrafast -an -rw_timeout 10000000 -stimeout 10000000  -f flv %s";
+    const char *ffmpeg_cmd = "%s -re -rtsp_transport tcp -i %s -vcodec libx264  -bf 0 -b:v 2048k -tune:v zerolatency -profile:v baseline -preset:v ultrafast -an -rw_timeout 10000000 -stimeout 10000000  -f flv %s";
    
     auto key = MD5(dst_url).hexdigest();
     {
