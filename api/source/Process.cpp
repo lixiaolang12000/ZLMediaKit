@@ -139,7 +139,9 @@ void Process::run(const string &cmd, const string &log_file_tmp) {
         // check parent exists.
         #include <thread>
         #include <chrono>
-        std::thread monitor([this](){
+        bool quit_monitor = false;
+        std::thread monitor([this, &quit_monitor](){
+            while (!quit_monitor) {
                 int signum = SIGTERM;
                 union sigval value;
                 value.sival_int = 0;
@@ -150,10 +152,12 @@ void Process::run(const string &cmd, const string &log_file_tmp) {
                 }
 
                 std::this_thread::sleep_for(std::chrono::seconds(1));
+            }                
         });
 
         // TODO: execv or execvp
         auto ret = execv(params[0].c_str(), charpv_params);
+        quit_monitor = true;
         if (ret < 0) {
             fprintf(stderr, "fork process failed:%d(%s)\r\n", get_uv_error(), get_uv_errmsg());
         }
