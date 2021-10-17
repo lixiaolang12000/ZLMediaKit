@@ -11,6 +11,7 @@
 #include <signal.h>
 #include <string.h>
 #include "mk_mediakit.h"
+#include "mk_ffmpeg_source.h"
 
 #ifdef _WIN32
 #include "windows.h"
@@ -147,7 +148,12 @@ void API_CALL on_mk_play_data_func(void *user_data,int track_type, int codec_id,
     }
 }
 
+void on_mk_ffmpeg_close_callback(void *user_data, const char* key) {
+    log_info("on_mk_ffmpeg_close_callback key: %s", key);
+}
+
 void context_start(Context *ctx, const char *url_pull, const char *url_push){
+#if 1
     release_player(&(ctx->player));
     ctx->player = mk_player_create();
     mk_player_set_on_result(ctx->player, on_mk_play_event_func, ctx);
@@ -155,6 +161,21 @@ void context_start(Context *ctx, const char *url_pull, const char *url_push){
     mk_player_set_on_data(ctx->player, on_mk_play_data_func, ctx);
     mk_player_play(ctx->player, url_pull);
     strcpy(ctx->push_url, url_push);
+#else
+    char key[256] = { 0 };
+    strcpy(key, mk_add_ffmpeg_source(url_pull, url_push, 10*1000, on_mk_ffmpeg_close_callback, 0));
+    log_info("ffmpeg key:%s", key);
+    int i = 20;
+    while(--i){
+#ifdef _WIN32
+        Sleep(1000);
+#else
+        sleep(1);
+#endif
+    }
+    mk_del_ffmpeg_source(key);
+    log_info("mk_del_ffmpeg_source done");
+#endif
 }
 
 //create_player("http://hls.weathertv.cn/tslslive/qCFIfHB/hls/live_sd.m3u8");
@@ -175,14 +196,14 @@ int main(int argc, char *argv[]){
     //rtmp://127.0.0.1/live/test
     //rtsp://127.0.0.1/live/test
     //播放mk_media的数据
-    mk_rtsp_server_start(554, 0);
-    mk_rtmp_server_start(1935, 0);
+    //mk_rtsp_server_start(554, 0);
+    //mk_rtmp_server_start(1935, 0);
 
     Context *ctx = (Context *)malloc(sizeof(Context));
     memset(ctx, 0, sizeof(Context));
 
     //推流给自己测试，当然也可以推流给其他服务器测试
-    context_start(ctx, "http://hls.weathertv.cn/tslslive/qCFIfHB/hls/live_sd.m3u8", "rtsp://127.0.0.1/live/rtsp_push");
+    context_start(ctx, "rtsp://admin:1qaz2wsx@192.168.10.240:554/Streaming/Channels/102", "rtmp://build.cscecxn.com/live/jtzd_xianchangxice_chumenfangxiang/2/video");
 
     int i = 10 * 60;
     while(--i){

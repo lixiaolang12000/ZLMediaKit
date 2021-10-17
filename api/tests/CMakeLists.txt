@@ -1,4 +1,10 @@
-﻿aux_source_directory(. TEST_SRC_LIST)
+﻿# Begin set rpath
+set(CMAKE_SKIP_BUILD_RPATH FALSE)  
+set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)  
+set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")  
+# End set rpath
+
+aux_source_directory(. TEST_SRC_LIST)
 foreach(TEST_SRC ${TEST_SRC_LIST})
     STRING(REGEX REPLACE "^\\./|\\.c[a-zA-Z0-9_]*$" "" TEST_EXE_NAME ${TEST_SRC})
     message(STATUS "add c api tester:${TEST_EXE_NAME}")
