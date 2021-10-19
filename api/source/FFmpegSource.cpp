@@ -45,7 +45,8 @@ FFmpegSource::FFmpegSource() {
     _poller = EventPollerPool::Instance().getPoller();
 }
 
-FFmpegSource::~FFmpegSource() {
+FFmpegSource::~FFmpegSource() {  
+    InfoL << "FFmpegSource::~FFmpegSource";
     DebugL;
 }
 
@@ -67,6 +68,41 @@ void FFmpegSource::setupRecordFlag(bool enable_hls, bool enable_mp4){
     _enable_mp4 = enable_mp4;
 }
 
+void FFmpegSource::play(const string &src_url, const string &dst_url, int timeout_ms, const onPlay &cb) {
+    GET_CONFIG(string,ffmpeg_bin,FFmpeg::kBin);
+    GET_CONFIG(string,ffmpeg_cmd_default,FFmpeg::kCmd);
+    GET_CONFIG(string,ffmpeg_log,FFmpeg::kLog);
+
+    _src_url = src_url;
+    _dst_url = dst_url;
+    _ffmpeg_cmd_key = ffmpeg_cmd_default;
+    _media_info.parse(dst_url);
+
+    char cmd[1024] = {0};
+    snprintf(cmd, sizeof(cmd), ffmpeg_cmd_default.data(), ffmpeg_bin.data(), src_url.data(), dst_url.data());
+    _process.run(cmd,ffmpeg_log.empty() ? "" : File::absolutePath("",ffmpeg_log));
+    InfoL << cmd;
+    
+    //推流给其他服务器的，通过判断FFmpeg进程是否在线判断是否成功
+    weak_ptr<FFmpegSource> weakSelf = shared_from_this();
+    _timer = std::make_shared<Timer>(timeout_ms / 1000.0f,[weakSelf,cb,timeout_ms](){
+        auto strongSelf = weakSelf.lock();
+        if(!strongSelf){
+            //自身已经销毁
+            return false;
+        }
+        //FFmpeg还在线，那么我们认为推流成功
+        if(strongSelf->_process.wait(false)){
+            cb(SockException());
+            strongSelf->startTimer(timeout_ms);
+            return false;
+        }
+        //ffmpeg进程已经退出
+        cb(SockException(Err_other,StrPrinter << "ffmpeg已经退出,exit code = " << strongSelf->_process.exit_code()));
+        return false;
+    },_poller);
+}
+
 void FFmpegSource::play(const string &ffmpeg_cmd, const string &src_url,const string &dst_url,int timeout_ms,const onPlay &cb) {
     GET_CONFIG(string,ffmpeg_bin,FFmpeg::kBin);
     GET_CONFIG(string,ffmpeg_cmd_default,FFmpeg::kCmd);
@@ -82,55 +118,24 @@ void FFmpegSource::play(const string &ffmpeg_cmd, const string &src_url,const st
     _process.run(cmd,ffmpeg_log.empty() ? "" : File::absolutePath("",ffmpeg_log));
     InfoL << cmd;
 
-    if (is_local_ip(_media_info._host)) {
-        //推流给自己的，通过判断流是否注册上来判断是否正常
-        if(_media_info._schema != RTSP_SCHEMA && _media_info._schema != RTMP_SCHEMA){
-            cb(SockException(Err_other,"本服务只支持rtmp/rtsp推流"));
-            return;
-        }
-        weak_ptr<FFmpegSource> weakSelf = shared_from_this();
-        findAsync(timeout_ms,[cb,weakSelf,timeout_ms](const MediaSource::Ptr &src){
-            auto strongSelf = weakSelf.lock();
-            if(!strongSelf){
-                //自己已经销毁
-                return;
-            }
-            if(src){
-                //推流给自己成功
-                cb(SockException());
-                strongSelf->onGetMediaSource(src);
-                strongSelf->startTimer(timeout_ms);
-                return;
-            }
-            //推流失败
-            if(!strongSelf->_process.wait(false)){
-                //ffmpeg进程已经退出
-                cb(SockException(Err_other,StrPrinter << "ffmpeg已经退出,exit code = " << strongSelf->_process.exit_code()));
-                return;
-            }
-            //ffmpeg进程还在线，但是等待推流超时
-            cb(SockException(Err_other,"等待超时"));
-        });
-    } else{
-        //推流给其他服务器的，通过判断FFmpeg进程是否在线判断是否成功
-        weak_ptr<FFmpegSource> weakSelf = shared_from_this();
-        _timer = std::make_shared<Timer>(timeout_ms / 1000.0f,[weakSelf,cb,timeout_ms](){
-            auto strongSelf = weakSelf.lock();
-            if(!strongSelf){
-                //自身已经销毁
-                return false;
-            }
-            //FFmpeg还在线，那么我们认为推流成功
-            if(strongSelf->_process.wait(false)){
-                cb(SockException());
-                strongSelf->startTimer(timeout_ms);
-                return false;
-            }
-            //ffmpeg进程已经退出
-            cb(SockException(Err_other,StrPrinter << "ffmpeg已经退出,exit code = " << strongSelf->_process.exit_code()));
+    //推流给其他服务器的，通过判断FFmpeg进程是否在线判断是否成功
+    weak_ptr<FFmpegSource> weakSelf = shared_from_this();
+    _timer = std::make_shared<Timer>(timeout_ms / 1000.0f,[weakSelf,cb,timeout_ms](){
+        auto strongSelf = weakSelf.lock();
+        if(!strongSelf){
+            //自身已经销毁
             return false;
-        },_poller);
-    }
+        }
+        //FFmpeg还在线，那么我们认为推流成功
+        if(strongSelf->_process.wait(false)){
+            cb(SockException());
+            strongSelf->startTimer(timeout_ms);
+            return false;
+        }
+        //ffmpeg进程已经退出
+        cb(SockException(Err_other,StrPrinter << "ffmpeg已经退出,exit code = " << strongSelf->_process.exit_code()));
+        return false;
+    },_poller);
 }
 
 void FFmpegSource::findAsync(int maxWaitMS, const function<void(const MediaSource::Ptr &src)> &cb) {
@@ -201,59 +206,46 @@ void FFmpegSource::startTimer(int timeout_ms) {
             //自身已经销毁
             return false;
         }
-        if (is_local_ip(strongSelf->_media_info._host)) {
-            //推流给自己的，我们通过检查是否已经注册来判断FFmpeg是否工作正常
-            strongSelf->findAsync(0, [&](const MediaSource::Ptr &src) {
-                //同步查找流
-                if (!src) {
-                    //流不在线，重新拉流, 这里原先是10秒超时，实际发现10秒不够，改成20秒了
-                    if(strongSelf->_replay_ticker.elapsedTime() > 20 * 1000){
-                        //上次重试时间超过10秒，那么再重试FFmpeg拉流
-                        strongSelf->_replay_ticker.resetTime();
-                        strongSelf->play(strongSelf->_ffmpeg_cmd_key, strongSelf->_src_url, strongSelf->_dst_url, timeout_ms, [](const SockException &) {});
-                    }
-                }
-            });
-        } else {
-            //推流给其他服务器的，我们通过判断FFmpeg进程是否在线，如果FFmpeg推流中断，那么它应该会自动退出
-            bool ffmpeg_exists = strongSelf->_process.wait(false);
-            // 根据ffmpeg进程id查看对应日志最近的更新时间，超过1分钟则认为ffmpeg阻塞了，重启
-            bool ffmpeg_block = false;
-            std::string ffmpeg_log_file = strongSelf->_process.log_file();
-            if (ffmpeg_log_file != "/dev/null") {
-                if (access(ffmpeg_log_file.c_str(), R_OK) == 0) {
-                    struct stat file_stat;
-                    if (stat(ffmpeg_log_file.c_str(), &file_stat) == 0) {
-                        time_t now;
-                        time(&now);
-                        if (now - file_stat.st_mtime > 60) {
-                            WarnL << ffmpeg_log_file << " last modify:" << file_stat.st_mtim.tv_sec << " now:" << now << " , ffmpeg maybe blocked, need kill ffmpeg";
-                            ffmpeg_block = true;
-                        }
+        
+        //推流给其他服务器的，我们通过判断FFmpeg进程是否在线，如果FFmpeg推流中断，那么它应该会自动退出
+        bool ffmpeg_exists = strongSelf->_process.wait(false);
+        // 根据ffmpeg进程id查看对应日志最近的更新时间，超过1分钟则认为ffmpeg阻塞了，重启
+        bool ffmpeg_block = false;
+        std::string ffmpeg_log_file = strongSelf->_process.log_file();
+        if (ffmpeg_log_file != "/dev/null") {
+            if (access(ffmpeg_log_file.c_str(), R_OK) == 0) {
+                struct stat file_stat;
+                if (stat(ffmpeg_log_file.c_str(), &file_stat) == 0) {
+                    time_t now;
+                    time(&now);
+                    if (now - file_stat.st_mtime > 60) {
+                        WarnL << ffmpeg_log_file << " last modify:" << file_stat.st_mtim.tv_sec << " now:" << now << " , ffmpeg maybe blocked, need kill ffmpeg";
+                        ffmpeg_block = true;
                     }
                 }
             }
-            
-            
-            if (!ffmpeg_exists
-            || ffmpeg_block) { // ffmpeg日志超过1分钟没有更新，应该是卡主了，重新拉流
-                //ffmpeg不在线，重新拉流
-                strongSelf->play(strongSelf->_ffmpeg_cmd_key, strongSelf->_src_url, strongSelf->_dst_url, timeout_ms, [weakSelf](const SockException &ex) {
-                    if(!ex){
-                        //没有错误
-                        return;
-                    }
-                    auto strongSelf = weakSelf.lock();
-                    if (!strongSelf) {
-                        //自身已经销毁
-                        return;
-                    }
-                    //上次重试时间超过10秒，那么再重试FFmpeg拉流
-                    strongSelf->startTimer(10 * 1000);
-                });
-            } 
-            
         }
+        
+        
+        if (!ffmpeg_exists
+        || ffmpeg_block) { // ffmpeg日志超过1分钟没有更新，应该是卡主了，重新拉流
+            WarnL << "ffmpeg not exists or block, restart.";
+            //ffmpeg不在线，重新拉流
+            strongSelf->play(strongSelf->_ffmpeg_cmd_key, strongSelf->_src_url, strongSelf->_dst_url, timeout_ms, [weakSelf](const SockException &ex) {
+                if(!ex){
+                    //没有错误
+                    return;
+                }
+                auto strongSelf = weakSelf.lock();
+                if (!strongSelf) {
+                    //自身已经销毁
+                    return;
+                }
+                //上次重试时间超过10秒，那么再重试FFmpeg拉流
+                strongSelf->startTimer(10 * 1000);
+            });
+        } 
+        
         return true;
     }, _poller);
 }

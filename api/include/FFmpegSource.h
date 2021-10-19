@@ -62,6 +62,7 @@ public:
      * @param cb 成功与否回调
      */
     void play(const string &ffmpeg_cmd, const string &src_url, const string &dst_url, int timeout_ms, const onPlay &cb);
+    void play(const string &src_url, const string &dst_url, int timeout_ms, const onPlay &cb);
 
     /**
      * 设置录制

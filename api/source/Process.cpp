@@ -146,10 +146,12 @@ void Process::run(const string &cmd, const string &log_file_tmp) {
                 union sigval value;
                 value.sival_int = 0;
                 auto pid = _parent_pid;
+                #if 0   // 判断方式有问题
                 if (sigqueue(pid, signum, value) < 0) {
                     printf("parent not exists, pid:%d", _parent_pid);
                     exit(0);
                 }
+                #endif
 
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }                
