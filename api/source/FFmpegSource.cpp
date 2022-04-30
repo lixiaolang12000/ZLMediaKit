@@ -17,7 +17,11 @@
 #include "Network/sockutil.h"
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <unistd.h>
+#else
+#include <io.h>
+#endif
 
 namespace FFmpeg {
 #define FFmpeg_FIELD "ffmpeg."
@@ -213,13 +217,21 @@ void FFmpegSource::startTimer(int timeout_ms) {
         bool ffmpeg_block = false;
         std::string ffmpeg_log_file = strongSelf->_process.log_file();
         if (ffmpeg_log_file != "/dev/null") {
+            #ifdef _WIN32
+            if (_access(ffmpeg_log_file.c_str(), 0) == 0) {
+            #else
             if (access(ffmpeg_log_file.c_str(), R_OK) == 0) {
+            #endif
                 struct stat file_stat;
                 if (stat(ffmpeg_log_file.c_str(), &file_stat) == 0) {
                     time_t now;
                     time(&now);
                     if (now - file_stat.st_mtime > 60) {
+                        #ifdef _WIN32
+                        WarnL << ffmpeg_log_file << " last modify:" << file_stat.st_mtime << " now:" << now << " , ffmpeg maybe blocked, need kill ffmpeg";
+                        #else
                         WarnL << ffmpeg_log_file << " last modify:" << file_stat.st_mtim.tv_sec << " now:" << now << " , ffmpeg maybe blocked, need kill ffmpeg";
+                        #endif
                         ffmpeg_block = true;
                     }
                 }

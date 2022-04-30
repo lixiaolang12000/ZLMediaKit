@@ -546,7 +546,7 @@ void HttpSession::sendResponse(int code,
 
     HttpSession::KeyValue &headerOut = const_cast<HttpSession::KeyValue &>(header);
     headerOut.emplace(kDate, dateStr());
-    headerOut.emplace(kServer, SERVER_NAME);
+    headerOut.emplace(kServer, kServerName);
     headerOut.emplace("Access-Control-Allow-Origin", "*");
     headerOut.emplace("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE");
     headerOut.emplace("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
