@@ -24,7 +24,7 @@ AACRtpEncoder::AACRtpEncoder(uint32_t ui32Ssrc,
                 ui8Interleaved){
 }
 
-void AACRtpEncoder::inputFrame(const Frame::Ptr &frame) {
+bool AACRtpEncoder::inputFrame(const Frame::Ptr &frame) {
     auto stamp = frame->dts();
     auto data = frame->data() + frame->prefixSize();
     auto len = frame->size() - frame->prefixSize();
@@ -50,6 +50,7 @@ void AACRtpEncoder::inputFrame(const Frame::Ptr &frame) {
         ptr += max_size;
         remain_size -= max_size;
     }
+    return len > 0;
 }
 
 void AACRtpEncoder::makeAACRtp(const void *data, size_t len, bool mark, uint32_t uiStamp) {
@@ -59,7 +60,7 @@ void AACRtpEncoder::makeAACRtp(const void *data, size_t len, bool mark, uint32_t
 /////////////////////////////////////////////////////////////////////////////////////
 
 AACRtpDecoder::AACRtpDecoder(const Track::Ptr &track) {
-    auto aacTrack = dynamic_pointer_cast<AACTrack>(track);
+    auto aacTrack = std::dynamic_pointer_cast<AACTrack>(track);
     if (!aacTrack || !aacTrack->ready()) {
         WarnL << "该aac track无效!";
     } else {
@@ -131,13 +132,19 @@ bool AACRtpDecoder::inputRtp(const RtpPacket::Ptr &rtp, bool key_pos) {
 }
 
 void AACRtpDecoder::flushData() {
-    //插入adts头
-    char adts_header[32] = {0};
-    auto size = dumpAacConfig(_aac_cfg, _frame->_buffer.size(), (uint8_t *) adts_header, sizeof(adts_header));
-    if (size > 0) {
-        //插入adts头
-        _frame->_buffer.insert(0, adts_header, size);
-        _frame->_prefix_size = size;
+    auto ptr = reinterpret_cast<const uint8_t *>(_frame->data());
+    if ((ptr[0] == 0xFF && (ptr[1] & 0xF0) == 0xF0) && _frame->size() > ADTS_HEADER_LEN) {
+        //adts头打入了rtp包，不符合规范，兼容EasyPusher的bug
+        _frame->_prefix_size = ADTS_HEADER_LEN;
+    } else {
+        //没有adts头则插入adts头
+        char adts_header[128] = {0};
+        auto size = dumpAacConfig(_aac_cfg, _frame->_buffer.size(), (uint8_t *) adts_header, sizeof(adts_header));
+        if (size > 0) {
+            //插入adts头
+            _frame->_buffer.insert(0, adts_header, size);
+            _frame->_prefix_size = size;
+        }
     }
     RtpCodec::inputFrame(_frame);
     obtainFrame();

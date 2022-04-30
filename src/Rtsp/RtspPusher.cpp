@@ -13,7 +13,8 @@
 #include "RtspPusher.h"
 #include "RtspSession.h"
 
-using namespace mediakit::Client;
+using namespace std;
+using namespace toolkit;
 
 namespace mediakit {
 
@@ -45,7 +46,6 @@ void RtspPusher::teardown() {
     _track_vec.clear();
     _session_id.clear();
     _content_base.clear();
-    _session_id.clear();
     _cseq = 1;
     _publish_timer.reset();
     _beat_timer.reset();
@@ -57,44 +57,44 @@ void RtspPusher::teardown() {
 void RtspPusher::publish(const string &url_str) {
     RtspUrl url;
     if (!url.parse(url_str)) {
-        onPublishResult(SockException(Err_other, StrPrinter << "illegal rtsp url:" << url_str), false);
+        onPublishResult_l(SockException(Err_other, StrPrinter << "illegal rtsp url:" << url_str), false);
         return;
     }
 
     teardown();
 
     if (url._user.size()) {
-        (*this)[kRtspUser] = url._user;
+        (*this)[Client::kRtspUser] = url._user;
     }
     if (url._passwd.size()) {
-        (*this)[kRtspPwd] = url._passwd;
-        (*this)[kRtspPwdIsMD5] = false;
+        (*this)[Client::kRtspPwd] = url._passwd;
+        (*this)[Client::kRtspPwdIsMD5] = false;
     }
 
     _url = url_str;
-    _rtp_type = (Rtsp::eRtpType) (int) (*this)[kRtpType];
+    _rtp_type = (Rtsp::eRtpType) (int) (*this)[Client::kRtpType];
     DebugL << url._url << " " << (url._user.size() ? url._user : "null") << " "
            << (url._passwd.size() ? url._passwd : "null") << " " << _rtp_type;
 
     weak_ptr<RtspPusher> weak_self = dynamic_pointer_cast<RtspPusher>(shared_from_this());
-    float publish_timeout_sec = (*this)[kTimeoutMS].as<int>() / 1000.0f;
+    float publish_timeout_sec = (*this)[Client::kTimeoutMS].as<int>() / 1000.0f;
     _publish_timer.reset(new Timer(publish_timeout_sec, [weak_self]() {
         auto strong_self = weak_self.lock();
         if (!strong_self) {
             return false;
         }
-        strong_self->onPublishResult(SockException(Err_timeout, "publish rtsp timeout"), false);
+        strong_self->onPublishResult_l(SockException(Err_timeout, "publish rtsp timeout"), false);
         return false;
     }, getPoller()));
 
-    if (!(*this)[kNetAdapter].empty()) {
-        setNetAdapter((*this)[kNetAdapter]);
+    if (!(*this)[Client::kNetAdapter].empty()) {
+        setNetAdapter((*this)[Client::kNetAdapter]);
     }
 
     startConnect(url._host, url._port, publish_timeout_sec);
 }
 
-void RtspPusher::onPublishResult(const SockException &ex, bool handshake_done) {
+void RtspPusher::onPublishResult_l(const SockException &ex, bool handshake_done) {
     DebugL << ex.what();
     if (ex.getErrCode() == Err_shutdown) {
         //主动shutdown的，不触发回调
@@ -103,14 +103,10 @@ void RtspPusher::onPublishResult(const SockException &ex, bool handshake_done) {
     if (!handshake_done) {
         //播放结果回调
         _publish_timer.reset();
-        if (_on_published) {
-            _on_published(ex);
-        }
+        onPublishResult(ex);
     } else {
         //播放成功后异常断开回调
-        if (_on_shutdown) {
-            _on_shutdown(ex);
-        }
+        onShutdown(ex);
     }
 
     if (ex) {
@@ -120,12 +116,12 @@ void RtspPusher::onPublishResult(const SockException &ex, bool handshake_done) {
 
 void RtspPusher::onErr(const SockException &ex) {
     //定时器_pPublishTimer为空后表明握手结束了
-    onPublishResult(ex, !_publish_timer);
+    onPublishResult_l(ex, !_publish_timer);
 }
 
 void RtspPusher::onConnect(const SockException &err) {
     if (err) {
-        onPublishResult(err, false);
+        onPublishResult_l(err, false);
         return;
     }
     sendAnnounce();
@@ -137,7 +133,7 @@ void RtspPusher::onRecv(const Buffer::Ptr &buf){
     } catch (exception &e) {
         SockException ex(Err_other, e.what());
         //定时器_pPublishTimer为空后表明握手结束了
-        onPublishResult(ex, !_publish_timer);
+        onPublishResult_l(ex, !_publish_timer);
     }
 }
 
@@ -179,7 +175,7 @@ void RtspPusher::sendAnnounce() {
     }
     _rtcp_context.clear();
     for (auto &track : _track_vec) {
-        _rtcp_context.emplace_back(std::make_shared<RtcpContext>(false));
+        _rtcp_context.emplace_back(std::make_shared<RtcpContextForSend>());
     }
     _on_res_func = std::bind(&RtspPusher::handleResAnnounce, this, placeholders::_1);
     sendRtspRequest("ANNOUNCE", _url, {}, src->getSdp());
@@ -211,6 +207,8 @@ void RtspPusher::handleResAnnounce(const Parser &parser) {
     if (_content_base.back() == '/') {
         _content_base.pop_back();
     }
+    
+    _session_id = parser["Session"];
 
     sendSetup(0);
 }
@@ -267,14 +265,14 @@ void RtspPusher::sendSetup(unsigned int track_idx) {
         case Rtsp::RTP_TCP: {
             sendRtspRequest("SETUP", control_url, {"Transport",
                                                    StrPrinter << "RTP/AVP/TCP;unicast;interleaved=" << track->_type * 2
-                                                           << "-" << track->_type * 2 + 1});
+                                                           << "-" << track->_type * 2 + 1 << ";mode=record"});
         }
             break;
         case Rtsp::RTP_UDP: {
             createUdpSockIfNecessary(track_idx);
             int port = _rtp_sock[track_idx]->get_local_port();
             sendRtspRequest("SETUP", control_url,
-                            {"Transport", StrPrinter << "RTP/AVP;unicast;client_port=" << port << "-" << port + 1});
+                            {"Transport", StrPrinter << "RTP/AVP;unicast;client_port=" << port << "-" << port + 1 << ";mode=record"});
         }
             break;
         default:
@@ -377,7 +375,7 @@ void RtspPusher::updateRtcpContext(const RtpPacket::Ptr &rtp){
 
         auto ssrc = rtp->getSSRC();
         auto rtcp = rtcp_ctx->createRtcpSR(ssrc + 1);
-        auto rtcp_sdes = RtcpSdes::create({SERVER_NAME});
+        auto rtcp_sdes = RtcpSdes::create({kServerName});
         rtcp_sdes->chunks.type = (uint8_t) SdesType::RTCP_SDES_CNAME;
         rtcp_sdes->chunks.ssrc = htonl(ssrc);
         send_rtcp(this, track_index, std::move(rtcp));
@@ -422,7 +420,7 @@ void RtspPusher::sendRtpPacket(const RtspMediaSource::RingDataType &pkt) {
 }
 
 int RtspPusher::getTrackIndexByInterleaved(int interleaved) const {
-    for (int i = 0; i < (int)_track_vec.size(); ++i) {
+    for (size_t i = 0; i < _track_vec.size(); ++i) {
         if (_track_vec[i]->_interleaved == interleaved) {
             return i;
         }
@@ -433,8 +431,8 @@ int RtspPusher::getTrackIndexByInterleaved(int interleaved) const {
     throw SockException(Err_shutdown, StrPrinter << "no such track with interleaved:" << interleaved);
 }
 
-int RtspPusher::getTrackIndexByTrackType(TrackType type) const{
-    for (int i = 0; i < (int)_track_vec.size(); ++i) {
+int RtspPusher::getTrackIndexByTrackType(TrackType type) const {
+    for (size_t i = 0; i < _track_vec.size(); ++i) {
         if (type == _track_vec[i]->_type) {
             return i;
         }
@@ -442,7 +440,7 @@ int RtspPusher::getTrackIndexByTrackType(TrackType type) const{
     if (_track_vec.size() == 1) {
         return 0;
     }
-    throw SockException(Err_shutdown, StrPrinter << "no such track with type:" << (int) type);
+    throw SockException(Err_shutdown, StrPrinter << "no such track with type:" << getTrackString(type));
 }
 
 void RtspPusher::sendRecord() {
@@ -452,6 +450,7 @@ void RtspPusher::sendRecord() {
             throw std::runtime_error("the media source was released");
         }
 
+        src->pause(false);
         _rtsp_reader = src->getRing()->attach(getPoller());
         weak_ptr<RtspPusher> weak_self = dynamic_pointer_cast<RtspPusher>(shared_from_this());
         _rtsp_reader->setReadCB([weak_self](const RtspMediaSource::RingDataType &pkt) {
@@ -464,12 +463,12 @@ void RtspPusher::sendRecord() {
         _rtsp_reader->setDetachCB([weak_self]() {
             auto strong_self = weak_self.lock();
             if (strong_self) {
-                strong_self->onPublishResult(SockException(Err_other, "媒体源被释放"), !strong_self->_publish_timer);
+                strong_self->onPublishResult_l(SockException(Err_other, "媒体源被释放"), !strong_self->_publish_timer);
             }
         });
         if (_rtp_type != Rtsp::RTP_TCP) {
             /////////////////////////心跳/////////////////////////////////
-            _beat_timer.reset(new Timer((*this)[kBeatIntervalMS].as<int>() / 1000.0f, [weak_self]() {
+            _beat_timer.reset(new Timer((*this)[Client::kBeatIntervalMS].as<int>() / 1000.0f, [weak_self]() {
                 auto strong_self = weak_self.lock();
                 if (!strong_self) {
                     return false;
@@ -478,7 +477,7 @@ void RtspPusher::sendRecord() {
                 return true;
             }, getPoller()));
         }
-        onPublishResult(SockException(Err_success, "success"), false);
+        onPublishResult_l(SockException(Err_success, "success"), false);
         //提升发送性能
         setSocketFlags();
     };
@@ -510,13 +509,13 @@ void RtspPusher::sendRtspRequest(const string &cmd, const string &url, const std
 void RtspPusher::sendRtspRequest(const string &cmd, const string &url,const StrCaseMap &header_const,const string &sdp ) {
     auto header = header_const;
     header.emplace("CSeq", StrPrinter << _cseq++);
-    header.emplace("User-Agent", SERVER_NAME);
+    header.emplace("User-Agent", kServerName);
 
     if (!_session_id.empty()) {
         header.emplace("Session", _session_id);
     }
 
-    if (!_realm.empty() && !(*this)[kRtspUser].empty()) {
+    if (!_realm.empty() && !(*this)[Client::kRtspUser].empty()) {
         if (!_nonce.empty()) {
             //MD5认证
             /*
@@ -527,22 +526,22 @@ void RtspPusher::sendRtspRequest(const string &cmd, const string &url,const StrC
             (2)当password为ANSI字符串,则
                 response= md5( md5(username:realm:password):nonce:md5(public_method:url) );
              */
-            string encrypted_pwd = (*this)[kRtspPwd];
-            if (!(*this)[kRtspPwdIsMD5].as<bool>()) {
-                encrypted_pwd = MD5((*this)[kRtspUser] + ":" + _realm + ":" + encrypted_pwd).hexdigest();
+            string encrypted_pwd = (*this)[Client::kRtspPwd];
+            if (!(*this)[Client::kRtspPwdIsMD5].as<bool>()) {
+                encrypted_pwd = MD5((*this)[Client::kRtspUser] + ":" + _realm + ":" + encrypted_pwd).hexdigest();
             }
             auto response = MD5(encrypted_pwd + ":" + _nonce + ":" + MD5(cmd + ":" + url).hexdigest()).hexdigest();
             _StrPrinter printer;
             printer << "Digest ";
-            printer << "username=\"" << (*this)[kRtspUser] << "\", ";
+            printer << "username=\"" << (*this)[Client::kRtspUser] << "\", ";
             printer << "realm=\"" << _realm << "\", ";
             printer << "nonce=\"" << _nonce << "\", ";
             printer << "uri=\"" << url << "\", ";
             printer << "response=\"" << response << "\"";
             header.emplace("Authorization", printer);
-        } else if (!(*this)[kRtspPwdIsMD5].as<bool>()) {
+        } else if (!(*this)[Client::kRtspPwdIsMD5].as<bool>()) {
             //base64认证
-            string authStr = StrPrinter << (*this)[kRtspUser] << ":" << (*this)[kRtspPwd];
+            string authStr = StrPrinter << (*this)[Client::kRtspUser] << ":" << (*this)[Client::kRtspPwd];
             char authStrBase64[1024] = {0};
             av_base64_encode(authStrBase64, sizeof(authStrBase64), (uint8_t *) authStr.data(), (int)authStr.size());
             header.emplace("Authorization", StrPrinter << "Basic " << authStrBase64);

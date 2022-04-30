@@ -14,43 +14,39 @@
 #include "Http/HttpDownloader.h"
 #include "Player/MediaPlayer.h"
 #include "Rtp/TSDecoder.h"
-using namespace toolkit;
+
 namespace mediakit {
 
 //http-ts播发器，未实现ts解复用
-class HttpTSPlayer : public HttpClientImp{
+class HttpTSPlayer : public HttpClientImp {
 public:
-    typedef function<void(const SockException &)> onShutdown;
-    typedef std::shared_ptr<HttpTSPlayer> Ptr;
+    using Ptr = std::shared_ptr<HttpTSPlayer>;
+    using onComplete = std::function<void(const toolkit::SockException &)>;
 
-    HttpTSPlayer(const EventPoller::Ptr &poller = nullptr, bool split_ts = true);
-    ~HttpTSPlayer() override ;
+    HttpTSPlayer(const toolkit::EventPoller::Ptr &poller = nullptr);
+    ~HttpTSPlayer() override = default;
 
-    //设置异常断开回调
-    void setOnDisconnect(const onShutdown &cb);
-    //设置接收ts包回调
-    void setOnPacket(const TSSegment::onSegment &cb);
+    /**
+     * 设置下载完毕或异常断开回调
+     */
+    void setOnComplete(onComplete cb);
+
+    /**
+     * 设置接收ts包回调
+     */
+    void setOnPacket(TSSegment::onSegment cb);
 
 protected:
     ///HttpClient override///
-    ssize_t onResponseHeader(const string &status,const HttpHeader &headers) override;
-    void onResponseBody(const char *buf,size_t size,size_t recvedSize,size_t totalSize) override;
-    void onResponseCompleted() override;
-    void onDisconnect(const SockException &ex) override ;
-
-    //收到ts包
-    virtual void onPacket(const char *data, size_t len);
+    void onResponseHeader(const std::string &status, const HttpHeader &header) override;
+    void onResponseBody(const char *buf, size_t size) override;
+    void onResponseCompleted(const toolkit::SockException &ex) override;
 
 private:
-    //是否为mpegts负载
-    bool _is_ts_content = false;
-    //第一个包是否为ts包
-    bool _is_first_packet_ts = false;
-    //是否判断是否是ts并split
-    bool _split_ts;
-    string _status;
-    TSSegment _segment;
-    onShutdown _on_disconnect;
+    void emitOnComplete(const toolkit::SockException &ex);
+
+private:
+    onComplete _on_complete;
     TSSegment::onSegment _on_segment;
 };
 

@@ -18,7 +18,7 @@
 #include "Util/base64.h"
 #include "Rtcp/Rtcp.h"
 using namespace toolkit;
-using namespace mediakit::Client;
+using namespace std;
 
 namespace mediakit {
 
@@ -74,19 +74,19 @@ void RtspPlayer::play(const string &strUrl){
     teardown();
 
     if (url._user.size()) {
-        (*this)[kRtspUser] = url._user;
+        (*this)[Client::kRtspUser] = url._user;
     }
     if (url._passwd.size()) {
-        (*this)[kRtspPwd] = url._passwd;
-        (*this)[kRtspPwdIsMD5] = false;
+        (*this)[Client::kRtspPwd] = url._passwd;
+        (*this)[Client::kRtspPwdIsMD5] = false;
     }
 
     _play_url = url._url;
-    _rtp_type = (Rtsp::eRtpType)(int)(*this)[kRtpType];
+    _rtp_type = (Rtsp::eRtpType)(int)(*this)[Client::kRtpType];
     DebugL << url._url << " " << (url._user.size() ? url._user : "null") << " " << (url._passwd.size() ? url._passwd : "null") << " " << _rtp_type;
 
     weak_ptr<RtspPlayer> weakSelf = dynamic_pointer_cast<RtspPlayer>(shared_from_this());
-    float playTimeOutSec = (*this)[kTimeoutMS].as<int>() / 1000.0f;
+    float playTimeOutSec = (*this)[Client::kTimeoutMS].as<int>() / 1000.0f;
     _play_check_timer.reset(new Timer(playTimeOutSec, [weakSelf]() {
         auto strongSelf=weakSelf.lock();
         if(!strongSelf) {
@@ -96,8 +96,8 @@ void RtspPlayer::play(const string &strUrl){
         return false;
     }, getPoller()));
 
-    if(!(*this)[kNetAdapter].empty()){
-        setNetAdapter((*this)[kNetAdapter]);
+    if(!(*this)[Client::kNetAdapter].empty()){
+        setNetAdapter((*this)[Client::kNetAdapter]);
     }
     startConnect(url._host, url._port, playTimeOutSec);
 }
@@ -206,7 +206,7 @@ void RtspPlayer::handleResDESCRIBE(const Parser& parser) {
     }
     _rtcp_context.clear();
     for (auto &track : _sdp_track) {
-        _rtcp_context.emplace_back(std::make_shared<RtcpContext>(true));
+        _rtcp_context.emplace_back(std::make_shared<RtcpContextForRecv>());
     }
     sendSetup(0);
 }
@@ -300,6 +300,20 @@ void RtspPlayer::handleResSETUP(const Parser &parser, unsigned int track_idx) {
             if (-1 == SockUtil::joinMultiAddrFilter(fd, multiAddr.data(), get_peer_ip().data(),get_local_ip().data())) {
                 SockUtil::joinMultiAddr(fd, multiAddr.data(),get_local_ip().data());
             }
+
+            //设置rtcp发送端口
+            pRtcpSockRef = createSocket();
+            if (!pRtcpSockRef->bindUdpSock(0, "0.0.0.0")) {
+                //分配端口失败
+                throw runtime_error("open udp socket failed");
+            }
+
+            //设置发送地址和发送端口
+            struct sockaddr_in rtpto;
+            rtpto.sin_port = ntohs(rtcp_port);
+            rtpto.sin_family = AF_INET;
+            rtpto.sin_addr.s_addr = inet_addr(get_peer_ip().data());
+            pRtcpSockRef->bindPeerAddr((struct sockaddr *)&(rtpto));
         } else {
             createUdpSockIfNecessary(track_idx);
             //udp单播
@@ -496,7 +510,7 @@ void RtspPlayer::onRtcpPacket(int track_idx, SdpTrack::Ptr &track, uint8_t *data
         if ((RtcpType) rtcp->pt == RtcpType::RTCP_SR) {
             auto sr = (RtcpSR *) (rtcp);
             //设置rtp时间戳与ntp时间戳的对应关系
-            setNtpStamp(track_idx, sr->rtpts, track->_samplerate, sr->getNtpUnixStampMS());
+            setNtpStamp(track_idx, sr->rtpts, sr->getNtpUnixStampMS());
         }
     }
 }
@@ -551,13 +565,13 @@ void RtspPlayer::sendRtspRequest(const string &cmd, const string &url, const std
 void RtspPlayer::sendRtspRequest(const string &cmd, const string &url,const StrCaseMap &header_const) {
     auto header = header_const;
     header.emplace("CSeq",StrPrinter << _cseq_send++);
-    header.emplace("User-Agent",SERVER_NAME);
+    header.emplace("User-Agent",kServerName);
 
     if(!_session_id.empty()){
         header.emplace("Session", _session_id);
     }
 
-    if(!_realm.empty() && !(*this)[kRtspUser].empty()){
+    if(!_realm.empty() && !(*this)[Client::kRtspUser].empty()){
         if(!_md5_nonce.empty()){
             //MD5认证
             /*
@@ -568,22 +582,22 @@ void RtspPlayer::sendRtspRequest(const string &cmd, const string &url,const StrC
             (2)当password为ANSI字符串,则
                 response= md5( md5(username:realm:password):nonce:md5(public_method:url) );
              */
-            string encrypted_pwd = (*this)[kRtspPwd];
-            if(!(*this)[kRtspPwdIsMD5].as<bool>()){
-                encrypted_pwd = MD5((*this)[kRtspUser] + ":" + _realm + ":" + encrypted_pwd).hexdigest();
+            string encrypted_pwd = (*this)[Client::kRtspPwd];
+            if(!(*this)[Client::kRtspPwdIsMD5].as<bool>()){
+                encrypted_pwd = MD5((*this)[Client::kRtspUser] + ":" + _realm + ":" + encrypted_pwd).hexdigest();
             }
             auto response = MD5(encrypted_pwd + ":" + _md5_nonce + ":" + MD5(cmd + ":" + url).hexdigest()).hexdigest();
             _StrPrinter printer;
             printer << "Digest ";
-            printer << "username=\"" << (*this)[kRtspUser] << "\", ";
+            printer << "username=\"" << (*this)[Client::kRtspUser] << "\", ";
             printer << "realm=\"" << _realm << "\", ";
             printer << "nonce=\"" << _md5_nonce << "\", ";
             printer << "uri=\"" << url << "\", ";
             printer << "response=\"" << response << "\"";
             header.emplace("Authorization",printer);
-        }else if(!(*this)[kRtspPwdIsMD5].as<bool>()){
+        }else if(!(*this)[Client::kRtspPwdIsMD5].as<bool>()){
             //base64认证
-            string authStr = StrPrinter << (*this)[kRtspUser] << ":" << (*this)[kRtspPwd];
+            string authStr = StrPrinter << (*this)[Client::kRtspUser] << ":" << (*this)[Client::kRtspPwd];
             char authStrBase64[1024] = {0};
             av_base64_encode(authStrBase64, sizeof(authStrBase64), (uint8_t *) authStr.data(), (int) authStr.size());
             header.emplace("Authorization",StrPrinter << "Basic " << authStrBase64 );
@@ -637,7 +651,7 @@ void RtspPlayer::onBeforeRtpSorted(const RtpPacket::Ptr &rtp, int track_idx){
 
     auto ssrc = rtp->getSSRC();
     auto rtcp = rtcp_ctx->createRtcpRR(ssrc + 1, ssrc);
-    auto rtcp_sdes = RtcpSdes::create({SERVER_NAME});
+    auto rtcp_sdes = RtcpSdes::create({kServerName});
     rtcp_sdes->chunks.type = (uint8_t) SdesType::RTCP_SDES_CNAME;
     rtcp_sdes->chunks.ssrc = htonl(ssrc);
     send_rtcp(this, track_idx, std::move(rtcp));
@@ -671,7 +685,7 @@ void RtspPlayer::onPlayResult_l(const SockException &ex , bool handshake_done) {
     if (!ex) {
         //播放成功，恢复rtp接收超时定时器
         _rtp_recv_ticker.resetTime();
-        auto timeoutMS = (*this)[kMediaTimeoutMS].as<uint64_t>();
+        auto timeoutMS = (*this)[Client::kMediaTimeoutMS].as<uint64_t>();
         weak_ptr<RtspPlayer> weakSelf = dynamic_pointer_cast<RtspPlayer>(shared_from_this());
         auto lam = [weakSelf, timeoutMS]() {
             auto strongSelf = weakSelf.lock();
@@ -693,7 +707,7 @@ void RtspPlayer::onPlayResult_l(const SockException &ex , bool handshake_done) {
 }
 
 int RtspPlayer::getTrackIndexByInterleaved(int interleaved) const {
-    for (unsigned int i = 0; i < _sdp_track.size(); i++) {
+    for (size_t i = 0; i < _sdp_track.size(); ++i) {
         if (_sdp_track[i]->_interleaved == interleaved) {
             return i;
         }
@@ -705,7 +719,7 @@ int RtspPlayer::getTrackIndexByInterleaved(int interleaved) const {
 }
 
 int RtspPlayer::getTrackIndexByTrackType(TrackType track_type) const {
-    for (unsigned int i = 0; i < _sdp_track.size(); i++) {
+    for (size_t i = 0; i < _sdp_track.size(); ++i) {
         if (_sdp_track[i]->_type == track_type) {
             return i;
         }
@@ -713,7 +727,7 @@ int RtspPlayer::getTrackIndexByTrackType(TrackType track_type) const {
     if (_sdp_track.size() == 1) {
         return 0;
     }
-    throw SockException(Err_shutdown, StrPrinter << "no such track with type:" << (int) track_type);
+    throw SockException(Err_shutdown, StrPrinter << "no such track with type:" << getTrackString(track_type));
 }
 
 } /* namespace mediakit */

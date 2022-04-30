@@ -18,9 +18,6 @@
 #include "Network/UdpServer.h"
 #include "RtpSession.h"
 
-using namespace std;
-using namespace toolkit;
-
 namespace mediakit{
 
 /**
@@ -28,8 +25,8 @@ namespace mediakit{
  */
 class RtpServer {
 public:
-    typedef std::shared_ptr<RtpServer> Ptr;
-    typedef function<void(const Buffer::Ptr &buf)> onRecv;
+    using Ptr = std::shared_ptr<RtpServer>;
+    using onRecv = std::function<void(const toolkit::Buffer::Ptr &buf)>;
 
     RtpServer();
     ~RtpServer();
@@ -40,8 +37,10 @@ public:
      * @param stream_id 流id，置空则使用ssrc
      * @param enable_tcp 是否启用tcp服务器
      * @param local_ip 绑定的本地网卡ip
+     * @param re_use_port 是否设置socket为re_use属性
      */
-    void start(uint16_t local_port, const string &stream_id = "", bool enable_tcp = true, const char *local_ip = "0.0.0.0");
+    void start(uint16_t local_port, const std::string &stream_id = "", bool enable_tcp = true,
+               const char *local_ip = "0.0.0.0", bool re_use_port = true, uint32_t ssrc = 0);
 
     /**
      * 获取绑定的本地端口
@@ -51,14 +50,14 @@ public:
     /**
      * 设置RtpProcess onDetach事件回调
      */
-    void setOnDetach(const function<void()> &cb);
+    void setOnDetach(const std::function<void()> &cb);
 
 protected:
-    Socket::Ptr _rtp_socket;
-    UdpServer::Ptr _udp_server;
-    TcpServer::Ptr _tcp_server;
+    toolkit::Socket::Ptr _rtp_socket;
+    toolkit::UdpServer::Ptr _udp_server;
+    toolkit::TcpServer::Ptr _tcp_server;
     RtpProcess::Ptr _rtp_process;
-    function<void()> _on_clearup;
+    std::function<void()> _on_clearup;
 };
 
 }//namespace mediakit

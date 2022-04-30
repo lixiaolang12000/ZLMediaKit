@@ -30,6 +30,8 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include <cstring> // std::memcpy(), std::strcmp()
 #include "Util/util.h"
 
+using namespace std;
+
 #define LOG_OPENSSL_ERROR(desc)                                                                    \
 	do                                                                                               \
 	{                                                                                                \
@@ -165,7 +167,7 @@ namespace RTC
 		EC_KEY* ecKey{ nullptr };
 		X509_NAME* certName{ nullptr };
 		std::string subject =
-		  std::string("mediasoup") + std::to_string(rand() % 999999 + 100000);
+		  std::string("mediasoup") + to_string(rand() % 999999 + 100000);
 
 		// Create key with curve.
 		ecKey = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);

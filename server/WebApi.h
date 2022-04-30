@@ -17,24 +17,20 @@
 #include "Common/Parser.h"
 #include "Network/Socket.h"
 #include "Http/HttpSession.h"
-
-using namespace std;
-using namespace Json;
-using namespace toolkit;
-using namespace mediakit;
+#include "Common/MultiMediaSourceMuxer.h"
 
 //配置文件路径
-extern string g_ini_file;
+extern std::string g_ini_file;
 
 namespace mediakit {
 ////////////RTSP服务器配置///////////
 namespace Rtsp {
-extern const string kPort;
+extern const std::string kPort;
 } //namespace Rtsp
 
 ////////////RTMP服务器配置///////////
 namespace Rtmp {
-extern const string kPort;
+extern const std::string kPort;
 } //namespace RTMP
 }  // namespace mediakit
 
@@ -79,25 +75,25 @@ public:
     ~SuccessException() = default;
 };
 
-using ApiArgsType = map<string, string, StrCaseCompare>;
+using ApiArgsType = std::map<std::string, std::string, mediakit::StrCaseCompare>;
 
 template<typename Args, typename First>
-string getValue(Args &args, const First &first) {
+std::string getValue(Args &args, const First &first) {
     return args[first];
 }
 
 template<typename First>
-string getValue(Json::Value &args, const First &first) {
+std::string getValue(Json::Value &args, const First &first) {
     return args[first].asString();
 }
 
 template<typename First>
-string getValue(string &args, const First &first) {
+std::string getValue(std::string &args, const First &first) {
     return "";
 }
 
 template<typename First>
-string getValue(const Parser &parser, const First &first) {
+std::string getValue(const mediakit::Parser &parser, const First &first) {
     auto ret = parser.getUrlArgs()[first];
     if (!ret.empty()) {
         return ret;
@@ -106,12 +102,12 @@ string getValue(const Parser &parser, const First &first) {
 }
 
 template<typename First>
-string getValue(Parser &parser, const First &first) {
-    return getValue((const Parser &) parser, first);
+std::string getValue(mediakit::Parser &parser, const First &first) {
+    return getValue((const mediakit::Parser &) parser, first);
 }
 
 template<typename Args, typename First>
-string getValue(const Parser &parser, Args &args, const First &first) {
+std::string getValue(const mediakit::Parser &parser, Args &args, const First &first) {
     auto ret = getValue(args, first);
     if (!ret.empty()) {
         return ret;
@@ -122,24 +118,24 @@ string getValue(const Parser &parser, Args &args, const First &first) {
 template<typename Args>
 class HttpAllArgs {
 public:
-    HttpAllArgs(const Parser &parser, Args &args) {
+    HttpAllArgs(const mediakit::Parser &parser, Args &args) {
         _get_args = [&args]() {
             return (void *) &args;
         };
-        _get_parser = [&parser]() -> const Parser & {
+        _get_parser = [&parser]() -> const mediakit::Parser & {
             return parser;
         };
-        _get_value = [](HttpAllArgs &that, const string &key) {
+        _get_value = [](HttpAllArgs &that, const std::string &key) {
             return getValue(that.getParser(), that.getArgs(), key);
         };
         _clone = [&](HttpAllArgs &that) {
             that._get_args = [args]() {
                 return (void *) &args;
             };
-            that._get_parser = [parser]() -> const Parser & {
+            that._get_parser = [parser]() -> const mediakit::Parser & {
                 return parser;
             };
-            that._get_value = [](HttpAllArgs &that, const string &key) {
+            that._get_value = [](HttpAllArgs &that, const std::string &key) {
                 return getValue(that.getParser(), that.getArgs(), key);
             };
             that._cache_able = true;
@@ -151,6 +147,7 @@ public:
             _get_args = that._get_args;
             _get_parser = that._get_parser;
             _get_value = that._get_value;
+            _cache_able = true;
         } else {
             that._clone(*this);
         }
@@ -159,11 +156,11 @@ public:
     ~HttpAllArgs() = default;
 
     template<typename Key>
-    variant operator[](const Key &key) const {
-        return (variant)_get_value(*(HttpAllArgs*)this, key);
+    toolkit::variant operator[](const Key &key) const {
+        return (toolkit::variant)_get_value(*(HttpAllArgs*)this, key);
     }
 
-    const Parser &getParser() const {
+    const mediakit::Parser &getParser() const {
         return _get_parser();
     }
 
@@ -177,34 +174,34 @@ public:
 
 private:
     bool _cache_able = false;
-    function<void *() > _get_args;
-    function<const Parser &() > _get_parser;
-    function<string(HttpAllArgs &that, const string &key)> _get_value;
-    function<void(HttpAllArgs &that) > _clone;
+    std::function<void *() > _get_args;
+    std::function<const mediakit::Parser &() > _get_parser;
+    std::function<std::string(HttpAllArgs &that, const std::string &key)> _get_value;
+    std::function<void(HttpAllArgs &that) > _clone;
 };
 
-#define API_ARGS_MAP SockInfo &sender, HttpSession::KeyValue &headerOut, const HttpAllArgs<ApiArgsType> &allArgs, Json::Value &val
-#define API_ARGS_MAP_ASYNC API_ARGS_MAP, const HttpSession::HttpResponseInvoker &invoker
-#define API_ARGS_JSON SockInfo &sender, HttpSession::KeyValue &headerOut, const HttpAllArgs<Json::Value> &allArgs, Json::Value &val
-#define API_ARGS_JSON_ASYNC API_ARGS_JSON, const HttpSession::HttpResponseInvoker &invoker
-#define API_ARGS_STRING SockInfo &sender, HttpSession::KeyValue &headerOut, const HttpAllArgs<string> &allArgs, Json::Value &val
-#define API_ARGS_STRING_ASYNC API_ARGS_STRING, const HttpSession::HttpResponseInvoker &invoker
+#define API_ARGS_MAP toolkit::SockInfo &sender, mediakit::HttpSession::KeyValue &headerOut, const HttpAllArgs<ApiArgsType> &allArgs, Json::Value &val
+#define API_ARGS_MAP_ASYNC API_ARGS_MAP, const mediakit::HttpSession::HttpResponseInvoker &invoker
+#define API_ARGS_JSON toolkit::SockInfo &sender, mediakit::HttpSession::KeyValue &headerOut, const HttpAllArgs<Json::Value> &allArgs, Json::Value &val
+#define API_ARGS_JSON_ASYNC API_ARGS_JSON, const mediakit::HttpSession::HttpResponseInvoker &invoker
+#define API_ARGS_STRING toolkit::SockInfo &sender, mediakit::HttpSession::KeyValue &headerOut, const HttpAllArgs<std::string> &allArgs, Json::Value &val
+#define API_ARGS_STRING_ASYNC API_ARGS_STRING, const mediakit::HttpSession::HttpResponseInvoker &invoker
 #define API_ARGS_VALUE sender, headerOut, allArgs, val
 
 //注册http请求参数是map<string, variant, StrCaseCompare>类型的http api
-void api_regist(const string &api_path, const function<void(API_ARGS_MAP)> &func);
+void api_regist(const std::string &api_path, const std::function<void(API_ARGS_MAP)> &func);
 //注册http请求参数是map<string, variant, StrCaseCompare>类型,但是可以异步回复的的http api
-void api_regist(const string &api_path, const function<void(API_ARGS_MAP_ASYNC)> &func);
+void api_regist(const std::string &api_path, const std::function<void(API_ARGS_MAP_ASYNC)> &func);
 
 //注册http请求参数是Json::Value类型的http api(可以支持多级嵌套的json参数对象)
-void api_regist(const string &api_path, const function<void(API_ARGS_JSON)> &func);
+void api_regist(const std::string &api_path, const std::function<void(API_ARGS_JSON)> &func);
 //注册http请求参数是Json::Value类型，但是可以异步回复的的http api
-void api_regist(const string &api_path, const function<void(API_ARGS_JSON_ASYNC)> &func);
+void api_regist(const std::string &api_path, const std::function<void(API_ARGS_JSON_ASYNC)> &func);
 
 //注册http请求参数是http原始请求信息的http api
-void api_regist(const string &api_path, const function<void(API_ARGS_STRING)> &func);
+void api_regist(const std::string &api_path, const std::function<void(API_ARGS_STRING)> &func);
 //注册http请求参数是http原始请求信息的异步回复的http api
-void api_regist(const string &api_path, const function<void(API_ARGS_STRING_ASYNC)> &func);
+void api_regist(const std::string &api_path, const std::function<void(API_ARGS_STRING_ASYNC)> &func);
 
 template<typename Args, typename First>
 bool checkArgs(Args &args, const First &first) {
@@ -233,5 +230,9 @@ bool checkArgs(Args &args, const First &first, const KeyTypes &...keys) {
 
 void installWebApi();
 void unInstallWebApi();
-Value makeMediaSourceJson(MediaSource &media);
+Json::Value makeMediaSourceJson(mediakit::MediaSource &media);
+void getStatisticJson(const std::function<void(Json::Value &val)> &cb);
+void addStreamProxy(const std::string &vhost, const std::string &app, const std::string &stream, const std::string &url, int retry_count,
+                    const mediakit::ProtocolOption &option, int rtp_type, float timeout_sec,
+                    const std::function<void(const toolkit::SockException &ex, const std::string &key)> &cb);
 #endif //ZLMEDIAKIT_WEBAPI_H

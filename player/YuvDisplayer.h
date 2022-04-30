@@ -1,4 +1,4 @@
-﻿/*
+﻿ /*
  * Copyright (c) 2016 The ZLMediaKit project authors. All Rights Reserved.
  *
  * This file is part of ZLMediaKit(https://github.com/ZLMediaKit/ZLMediaKit).
@@ -25,11 +25,7 @@ extern "C" {
 #pragma comment(lib,"SDL2.lib")
 #endif //defined(_WIN32)
 
-using namespace toolkit;
-using namespace mediakit;
-
 #define REFRESH_EVENT   (SDL_USEREVENT + 1)
-
 
 class SDLDisplayerHelper
 {
@@ -44,7 +40,7 @@ public:
     template<typename FUN>
     void doTask(FUN &&f){
         {
-            lock_guard<mutex> lck(_mtxTask);
+            std::lock_guard<std::mutex> lck(_mtxTask);
             _taskList.emplace_back(f);
         }
         SDL_Event event;
@@ -61,8 +57,8 @@ public:
             switch (event.type){
                 case REFRESH_EVENT:{
                     {
-                        lock_guard<mutex> lck(_mtxTask);
-                        if(_taskList.empty()){
+                        std::lock_guard<std::mutex> lck(_mtxTask);
+                        if (_taskList.empty()) {
                             //not reachable
                             continue;
                         }
@@ -102,17 +98,17 @@ public:
     using Ptr = std::shared_ptr<YuvDisplayer>;
 
     YuvDisplayer(void *hwnd = nullptr,const char *title = "untitled"){
-        static onceToken token([]() {
-            if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO) == -1) {
-                string err = "初始化SDL失败:";
+        static toolkit::onceToken token([]() {
+            if (SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO) == -1) {
+                std::string err = "初始化SDL失败:";
                 err+= SDL_GetError();
                 ErrorL << err;
                 throw std::runtime_error(err);
             }
             SDL_LogSetAllPriority(SDL_LOG_PRIORITY_CRITICAL);
-            SDL_LogSetOutputFunction([](void *userdata, int category, SDL_LogPriority priority, const char *message){
+            SDL_LogSetOutputFunction([](void *userdata, int category, SDL_LogPriority priority, const char *message) {
                 DebugL << category << " " <<  priority << message;
-            },nullptr);
+            }, nullptr);
             InfoL << "SDL_Init";
         }, []() {
             SDLDisplayerHelper::Destory();
@@ -163,16 +159,27 @@ public:
             _render = SDL_CreateRenderer(_win, -1, SDL_RENDERER_ACCELERATED);
         }
         if (_render && !_texture) {
-            _texture = SDL_CreateTexture(_render, SDL_PIXELFORMAT_IYUV,
-                                         SDL_TEXTUREACCESS_STREAMING,
-                                         pFrame->width,
-                                         pFrame->height);
+            if (pFrame->format == AV_PIX_FMT_NV12) {
+                _texture = SDL_CreateTexture(
+                    _render, SDL_PIXELFORMAT_NV12, SDL_TEXTUREACCESS_STREAMING, pFrame->width, pFrame->height);
+            } else {
+                _texture = SDL_CreateTexture(
+                    _render, SDL_PIXELFORMAT_IYUV, SDL_TEXTUREACCESS_STREAMING, pFrame->width, pFrame->height);
+            }
         }
         if (_texture) {
-            SDL_UpdateYUVTexture(_texture, nullptr,
-                                 pFrame->data[0], pFrame->linesize[0],
-                                 pFrame->data[1], pFrame->linesize[1],
-                                 pFrame->data[2], pFrame->linesize[2]);
+#if (SDL_PATCHLEVEL >= 16 || SDL_MINOR_VERSION > 0)
+            //需要更新sdl到最新（>=2.0.16）
+            if (pFrame->format == AV_PIX_FMT_NV12) {
+                SDL_UpdateNVTexture(
+                    _texture, nullptr, pFrame->data[0], pFrame->linesize[0], pFrame->data[1], pFrame->linesize[1]);
+            } else
+#endif
+            {
+                SDL_UpdateYUVTexture(
+                        _texture, nullptr, pFrame->data[0], pFrame->linesize[0], pFrame->data[1], pFrame->linesize[1],
+                        pFrame->data[2], pFrame->linesize[2]);
+            }
 
             //SDL_UpdateTexture(_texture, nullptr, pFrame->data[0], pFrame->linesize[0]);
             SDL_RenderClear(_render);
@@ -183,7 +190,7 @@ public:
         return false;
     }
 private:
-    string _title;
+    std::string _title;
     SDL_Window *_win = nullptr;
     SDL_Renderer *_render = nullptr;
     SDL_Texture *_texture = nullptr;

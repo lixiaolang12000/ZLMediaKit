@@ -200,27 +200,32 @@ void API_CALL on_mk_http_request(const mk_parser parser,
         return;
     }
 
-    if(strcmp(url,"/api/test") != 0){
+    //拦截api: /api/test
+    if(strcmp(url,"/api/test") == 0) {
+        *consumed = 1;
+        const char *response_header[] = { "Content-Type", "text/html", NULL };
+        const char *content = "<html>"
+                              "<head>"
+                              "<title>hello world</title>"
+                              "</head>"
+                              "<body bgcolor=\"white\">"
+                              "<center><h1>hello world</h1></center><hr>"
+                              "<center>"
+                              "ZLMediaKit-4.0</center>"
+                              "</body>"
+                              "</html>";
+        mk_http_body body = mk_http_body_from_string(content, 0);
+        mk_http_response_invoker_do(invoker, 200, response_header, body);
+        mk_http_body_release(body);
+    }
+    //拦截api: /index/api/webrtc
+    else if(strcmp(url,"/index/api/webrtc") == 0){
+        mk_webrtc_http_response_invoker_do(invoker,parser,sender);
+    }
+    else{
         *consumed = 0;
         return;
     }
-
-    //只拦截api: /api/test
-    *consumed = 1;
-    const char *response_header[] = {"Content-Type","text/html",NULL};
-    const char *content =
-                    "<html>"
-                    "<head>"
-                    "<title>hello world</title>"
-                    "</head>"
-                    "<body bgcolor=\"white\">"
-                    "<center><h1>hello world</h1></center><hr>"
-                    "<center>""ZLMediaKit-4.0</center>"
-                    "</body>"
-                    "</html>";
-    mk_http_body body = mk_http_body_from_string(content,0);
-    mk_http_response_invoker_do(invoker, 200, response_header, body);
-    mk_http_body_release(body);
 }
 
 /**
@@ -442,6 +447,7 @@ int main(int argc, char *argv[]) {
             .ini = ini_path,
             .ini_is_path = 1,
             .log_level = 0,
+            .log_mask = LOG_CONSOLE,
             .log_file_path = NULL,
             .log_file_days = 0,
             .ssl = ssl_path,
@@ -459,6 +465,7 @@ int main(int argc, char *argv[]) {
     mk_rtmp_server_start(1935, 0);
     mk_shell_server_start(9000);
     mk_rtp_server_start(10000);
+    mk_rtc_server_start(8000);
 
     mk_events events = {
             .on_mk_media_changed = on_mk_media_changed,
@@ -476,6 +483,8 @@ int main(int argc, char *argv[]) {
             .on_mk_flow_report = on_mk_flow_report
     };
     mk_events_listen(&events);
+
+    log_info("media server %s", "stared!");
 
     signal(SIGINT, s_on_exit );// 设置退出信号
     while (flag) {

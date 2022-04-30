@@ -163,7 +163,11 @@ API_EXPORT int API_CALL mk_media_total_reader_count(mk_media ctx){
 API_EXPORT mk_media API_CALL mk_media_create(const char *vhost, const char *app, const char *stream,
                                              float duration, int hls_enabled, int mp4_enabled) {
     assert(vhost && app && stream);
-    MediaHelper::Ptr *obj(new MediaHelper::Ptr(new MediaHelper(vhost, app, stream, duration, hls_enabled, mp4_enabled)));
+    ProtocolOption option;
+    option.enable_hls = hls_enabled;
+    option.enable_mp4 = mp4_enabled;
+
+    MediaHelper::Ptr *obj(new MediaHelper::Ptr(new MediaHelper(vhost, app, stream, duration, option)));
     (*obj)->attachEvent();
     return (mk_media) obj;
 }
@@ -174,7 +178,7 @@ API_EXPORT void API_CALL mk_media_release(mk_media ctx) {
     delete obj;
 }
 
-API_EXPORT void API_CALL mk_media_init_video(mk_media ctx, int codec_id, int width, int height, float fps){
+API_EXPORT int API_CALL mk_media_init_video(mk_media ctx, int codec_id, int width, int height, float fps){
     assert(ctx);
     MediaHelper::Ptr *obj = (MediaHelper::Ptr *) ctx;
     VideoInfo info;
@@ -182,10 +186,10 @@ API_EXPORT void API_CALL mk_media_init_video(mk_media ctx, int codec_id, int wid
     info.iFrameRate = fps;
     info.iWidth = width;
     info.iHeight = height;
-    (*obj)->getChannel()->initVideo(info);
+    return (*obj)->getChannel()->initVideo(info);
 }
 
-API_EXPORT void API_CALL mk_media_init_audio(mk_media ctx, int codec_id, int sample_rate, int channels, int sample_bit){
+API_EXPORT int API_CALL mk_media_init_audio(mk_media ctx, int codec_id, int sample_rate, int channels, int sample_bit){
     assert(ctx);
     MediaHelper::Ptr *obj = (MediaHelper::Ptr *) ctx;
     AudioInfo info;
@@ -193,7 +197,7 @@ API_EXPORT void API_CALL mk_media_init_audio(mk_media ctx, int codec_id, int sam
     info.iSampleRate = sample_rate;
     info.iChannel = channels;
     info.iSampleBit = sample_bit;
-    (*obj)->getChannel()->initAudio(info);
+    return (*obj)->getChannel()->initAudio(info);
 }
 
 API_EXPORT void API_CALL mk_media_init_complete(mk_media ctx){
@@ -202,41 +206,48 @@ API_EXPORT void API_CALL mk_media_init_complete(mk_media ctx){
     (*obj)->getChannel()->addTrackCompleted();
 }
 
-API_EXPORT void API_CALL mk_media_input_h264(mk_media ctx, void *data, int len, uint32_t dts, uint32_t pts) {
+API_EXPORT int API_CALL mk_media_input_h264(mk_media ctx, const void *data, int len, uint32_t dts, uint32_t pts) {
     assert(ctx && data && len > 0);
     MediaHelper::Ptr *obj = (MediaHelper::Ptr *) ctx;
-    (*obj)->getChannel()->inputH264((char *) data, len, dts, pts);
+    return (*obj)->getChannel()->inputH264((const char *) data, len, dts, pts);
 }
 
-API_EXPORT void API_CALL mk_media_input_h265(mk_media ctx, void *data, int len, uint32_t dts, uint32_t pts) {
+API_EXPORT int API_CALL mk_media_input_h265(mk_media ctx, const void *data, int len, uint32_t dts, uint32_t pts) {
     assert(ctx && data && len > 0);
     MediaHelper::Ptr *obj = (MediaHelper::Ptr *) ctx;
-    (*obj)->getChannel()->inputH265((char *) data, len, dts, pts);
+    return (*obj)->getChannel()->inputH265((const char *) data, len, dts, pts);
 }
 
-API_EXPORT void API_CALL mk_media_input_aac(mk_media ctx, void *data, int len, uint32_t dts, void *adts) {
+API_EXPORT int API_CALL mk_media_input_aac(mk_media ctx, const void *data, int len, uint32_t dts, void *adts) {
     assert(ctx && data && len > 0 && adts);
     MediaHelper::Ptr *obj = (MediaHelper::Ptr *) ctx;
-    (*obj)->getChannel()->inputAAC((char *) data, len, dts, (char *) adts);
+    return (*obj)->getChannel()->inputAAC((const char *) data, len, dts, (char *) adts);
 }
 
-API_EXPORT void API_CALL mk_media_input_pcm(mk_media ctx, void *data , int len, uint32_t pts){
+API_EXPORT int API_CALL mk_media_input_pcm(mk_media ctx, void *data , int len, uint32_t pts){
 	assert(ctx && data && len > 0);
 	MediaHelper::Ptr* obj = (MediaHelper::Ptr*) ctx;
-	(*obj)->getChannel()->inputPCM((char*)data, len, pts);
+	return (*obj)->getChannel()->inputPCM((char*)data, len, pts);
 }
 
-API_EXPORT void API_CALL mk_media_input_audio(mk_media ctx, void* data, int len, uint32_t dts){
+API_EXPORT int API_CALL mk_media_input_audio(mk_media ctx, const void* data, int len, uint32_t dts){
     assert(ctx && data && len > 0);
     MediaHelper::Ptr* obj = (MediaHelper::Ptr*) ctx;
-    (*obj)->getChannel()->inputAudio((char*)data, len, dts);
+    return (*obj)->getChannel()->inputAudio((const char*)data, len, dts);
 }
 
 API_EXPORT void API_CALL mk_media_start_send_rtp(mk_media ctx, const char *dst_url, uint16_t dst_port, const char *ssrc, int is_udp, on_mk_media_send_rtp_result cb, void *user_data){
     assert(ctx && dst_url && ssrc);
     MediaHelper::Ptr* obj = (MediaHelper::Ptr*) ctx;
+
+    MediaSourceEvent::SendRtpArgs args;
+    args.dst_url = dst_url;
+    args.dst_port = dst_port;
+    args.ssrc = ssrc;
+    args.is_udp = is_udp;
+
     //sender参数无用
-    (*obj)->getChannel()->startSendRtp(*MediaSource::NullMediaSource, dst_url, dst_port, ssrc, is_udp, 0, [cb, user_data](uint16_t local_port, const SockException &ex){
+    (*obj)->getChannel()->startSendRtp(*MediaSource::NullMediaSource, args, [cb, user_data](uint16_t local_port, const SockException &ex){
         if (cb) {
             cb(user_data, local_port, ex.getErrCode(), ex.what());
         }

@@ -17,26 +17,23 @@
 #include "Rtsp/RtspPlayer.h"
 #include "Rtmp/RtmpPlayer.h"
 #include "Thread/TaskExecutor.h"
-using namespace toolkit;
 
 namespace mediakit {
 
-class MediaPlayer : public PlayerImp<PlayerBase,PlayerBase> {
+class MediaPlayer : public PlayerImp<PlayerBase, PlayerBase> {
 public:
-    typedef std::shared_ptr<MediaPlayer> Ptr;
+    using Ptr = std::shared_ptr<MediaPlayer>;
 
-    MediaPlayer(const EventPoller::Ptr &poller = nullptr);
-    virtual ~MediaPlayer();
-    void play(const string &url) override;
-    void pause(bool pause) override;
-    void speed(float speed) override;
-    void teardown() override;
-    EventPoller::Ptr getPoller();
-    void setOnCreateSocket(Socket::onCreateSocket cb);
+    MediaPlayer(const toolkit::EventPoller::Ptr &poller = nullptr);
+    ~MediaPlayer() override = default;
+
+    void play(const std::string &url) override;
+    toolkit::EventPoller::Ptr getPoller();
+    void setOnCreateSocket(toolkit::Socket::onCreateSocket cb);
 
 private:
-    EventPoller::Ptr _poller;
-    Socket::onCreateSocket _on_create_socket;
+    toolkit::EventPoller::Ptr _poller;
+    toolkit::Socket::onCreateSocket _on_create_socket;
 };
 
 } /* namespace mediakit */

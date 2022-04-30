@@ -14,7 +14,6 @@
 #include <set>
 #include <cstdint>
 #include "Util/TimeTicker.h"
-using namespace toolkit;
 
 namespace mediakit {
 
@@ -87,7 +86,7 @@ private:
     int64_t _last_dts_in = 0;
     int64_t _last_dts_out = 0;
     int64_t _last_pts_out = 0;
-    SmoothTicker _ticker;
+    toolkit::SmoothTicker _ticker;
     bool _playback = false;
     Stamp *_sync_master = nullptr;
 };
@@ -111,7 +110,7 @@ private:
     size_t _frames_since_last_max_pts = 0;
     size_t _sorter_max_size = 0;
     size_t _count_sorter_max_size = 0;
-    set<uint32_t> _pts_sorter;
+    std::set<uint32_t> _pts_sorter;
 };
 
 class NtpStamp {
@@ -119,16 +118,15 @@ public:
     NtpStamp() = default;
     ~NtpStamp() = default;
 
-    void setNtpStamp(uint32_t rtp_stamp, uint32_t sample_rate, uint64_t ntp_stamp_ms);
+    void setNtpStamp(uint32_t rtp_stamp, uint64_t ntp_stamp_ms);
     uint64_t getNtpStamp(uint32_t rtp_stamp, uint32_t sample_rate);
 
 private:
-    void update(uint32_t rtp_stamp_ms, uint64_t ntp_stamp_ms);
+    void update(uint32_t rtp_stamp, uint64_t ntp_stamp_ms);
     uint64_t getNtpStamp_l(uint32_t rtp_stamp, uint32_t sample_rate);
 
 private:
     uint32_t _last_rtp_stamp = 0;
-    uint64_t _last_rtp_stamp_ms = 0;
     uint64_t _last_ntp_stamp_ms = 0;
 };
 

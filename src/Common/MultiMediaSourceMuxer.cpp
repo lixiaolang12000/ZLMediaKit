@@ -12,11 +12,26 @@
 #include "Common/config.h"
 #include "MultiMediaSourceMuxer.h"
 
+using namespace std;
+using namespace toolkit;
+
 namespace toolkit {
     StatisticImp(mediakit::MultiMediaSourceMuxer);
 }
 
 namespace mediakit {
+
+ProtocolOption::ProtocolOption() {
+    GET_CONFIG(bool, s_to_hls, General::kPublishToHls);
+    GET_CONFIG(bool, s_to_mp4, General::kPublishToMP4);
+    GET_CONFIG(bool, s_enabel_audio, General::kEnableAudio);
+    GET_CONFIG(bool, s_add_mute_audio, General::kAddMuteAudio);
+
+    enable_hls = s_to_hls;
+    enable_mp4 = s_to_mp4;
+    enable_audio = s_enabel_audio;
+    add_mute_audio = s_add_mute_audio;
+}
 
 static std::shared_ptr<MediaSinkInterface> makeRecorder(MediaSource &sender, const vector<Track::Ptr> &tracks, Recorder::type type, const string &custom_path, size_t max_second){
     auto recorder = Recorder::createRecorder(type, sender.getVhost(), sender.getApp(), sender.getId(), custom_path, max_second);
@@ -56,8 +71,7 @@ static string getTrackInfoStr(const TrackSource *track_src){
     return std::move(codec_info);
 }
 
-MultiMediaSourceMuxer::MultiMediaSourceMuxer(const string &vhost, const string &app, const string &stream, float dur_sec,
-                                             bool enable_rtsp, bool enable_rtmp, bool enable_hls, bool enable_mp4) {
+MultiMediaSourceMuxer::MultiMediaSourceMuxer(const string &vhost, const string &app, const string &stream, float dur_sec, const ProtocolOption &option) {
     _get_origin_url = [this, vhost, app, stream]() {
         auto ret = getOriginUrl(*MediaSource::NullMediaSource);
         if (!ret.empty()) {
@@ -66,26 +80,30 @@ MultiMediaSourceMuxer::MultiMediaSourceMuxer(const string &vhost, const string &
         return vhost + "/" + app + "/" + stream;
     };
 
-    if (enable_rtmp) {
+    if (option.enable_rtmp) {
         _rtmp = std::make_shared<RtmpMediaSourceMuxer>(vhost, app, stream, std::make_shared<TitleMeta>(dur_sec));
     }
-    if (enable_rtsp) {
+    if (option.enable_rtsp) {
         _rtsp = std::make_shared<RtspMediaSourceMuxer>(vhost, app, stream, std::make_shared<TitleSdp>(dur_sec));
     }
-
-    if (enable_hls) {
-        _hls = dynamic_pointer_cast<HlsRecorder>(Recorder::createRecorder(Recorder::type_hls, vhost, app, stream));
+    if (option.enable_hls) {
+        _hls = dynamic_pointer_cast<HlsRecorder>(Recorder::createRecorder(Recorder::type_hls, vhost, app, stream, option.hls_save_path));
     }
-
-    if (enable_mp4) {
-        _mp4 = Recorder::createRecorder(Recorder::type_mp4, vhost, app, stream);
+    if (option.enable_mp4) {
+        _mp4 = Recorder::createRecorder(Recorder::type_mp4, vhost, app, stream, option.mp4_save_path, option.mp4_max_second);
     }
-
-    _ts = std::make_shared<TSMediaSourceMuxer>(vhost, app, stream);
-
+    if (option.enable_ts) {
+        _ts = std::make_shared<TSMediaSourceMuxer>(vhost, app, stream);
+    }
 #if defined(ENABLE_MP4)
-    _fmp4 = std::make_shared<FMP4MediaSourceMuxer>(vhost, app, stream);
+    if (option.enable_fmp4) {
+        _fmp4 = std::make_shared<FMP4MediaSourceMuxer>(vhost, app, stream);
+    }
 #endif
+
+    //音频相关设置
+    enableAudio(option.enable_audio);
+    enableMuteAudio(option.add_mute_audio);
 }
 
 void MultiMediaSourceMuxer::setMediaListener(const std::weak_ptr<MediaSourceEvent> &listener) {
@@ -187,19 +205,19 @@ bool MultiMediaSourceMuxer::setupRecord(MediaSource &sender, Recorder::type type
 bool MultiMediaSourceMuxer::isRecording(MediaSource &sender, Recorder::type type) {
     switch (type){
         case Recorder::type_hls :
-            return _hls ? true : false;
+            return !!_hls;
         case Recorder::type_mp4 :
-            return _mp4 ? true : false;
+            return !!_mp4;
         default:
             return false;
     }
 }
 
-void MultiMediaSourceMuxer::startSendRtp(MediaSource &, const string &dst_url, uint16_t dst_port, const string &ssrc, bool is_udp, uint16_t src_port, const function<void(uint16_t local_port, const SockException &ex)> &cb){
+void MultiMediaSourceMuxer::startSendRtp(MediaSource &, const MediaSourceEvent::SendRtpArgs &args, const std::function<void(uint16_t, const toolkit::SockException &)> cb) {
 #if defined(ENABLE_RTPPROXY)
-    RtpSender::Ptr rtp_sender = std::make_shared<RtpSender>(atoi(ssrc.data()));
+    auto rtp_sender = std::make_shared<RtpSender>();
     weak_ptr<MultiMediaSourceMuxer> weak_self = shared_from_this();
-    rtp_sender->startSend(dst_url, dst_port, is_udp, src_port, [weak_self, rtp_sender, cb, ssrc](uint16_t local_port, const SockException &ex) {
+    rtp_sender->startSend(args, [args, weak_self, rtp_sender, cb](uint16_t local_port, const SockException &ex) {
         cb(local_port, ex);
         auto strong_self = weak_self.lock();
         if (!strong_self || ex) {
@@ -210,7 +228,7 @@ void MultiMediaSourceMuxer::startSendRtp(MediaSource &, const string &dst_url, u
         }
         rtp_sender->addTrackCompleted();
         lock_guard<mutex> lck(strong_self->_rtp_sender_mtx);
-        strong_self->_rtp_sender[ssrc] = rtp_sender;
+        strong_self->_rtp_sender[args.ssrc] = rtp_sender;
     });
 #else
     cb(0, SockException(Err_other, "该功能未启用，编译时请打开ENABLE_RTPPROXY宏"));
@@ -219,11 +237,12 @@ void MultiMediaSourceMuxer::startSendRtp(MediaSource &, const string &dst_url, u
 
 bool MultiMediaSourceMuxer::stopSendRtp(MediaSource &sender, const string &ssrc) {
 #if defined(ENABLE_RTPPROXY)
+    std::unique_ptr<onceToken> token;
     if (&sender != MediaSource::NullMediaSource) {
-        onceToken token(nullptr, [&]() {
+        token.reset(new onceToken(nullptr, [&]() {
             //关闭rtp推流，可能触发无人观看事件
             MediaSourceEventInterceptor::onReaderChanged(sender, totalReaderCount());
-        });
+        }));
     }
     if (ssrc.empty()) {
         //关闭全部
@@ -244,36 +263,38 @@ vector<Track::Ptr> MultiMediaSourceMuxer::getMediaTracks(MediaSource &sender, bo
     return getTracks(trackReady);
 }
 
-void MultiMediaSourceMuxer::onTrackReady(const Track::Ptr &track) {
+bool MultiMediaSourceMuxer::onTrackReady(const Track::Ptr &track) {
     if (CodecL16 == track->getCodecId()) {
         WarnL << "L16音频格式目前只支持RTSP协议推流拉流!!!";
-        return;
+        return false;
     }
 
+    bool ret = false;
     if (_rtmp) {
-        _rtmp->addTrack(track);
+        ret = _rtmp->addTrack(track) ? true : ret;
     }
     if (_rtsp) {
-        _rtsp->addTrack(track);
+        ret = _rtsp->addTrack(track) ? true : ret;
     }
     if (_ts) {
-        _ts->addTrack(track);
+        ret = _ts->addTrack(track) ? true : ret;
     }
 #if defined(ENABLE_MP4)
     if (_fmp4) {
-        _fmp4->addTrack(track);
+        ret = _fmp4->addTrack(track) ? true : ret;
     }
 #endif
 
     //拷贝智能指针，目的是为了防止跨线程调用设置录像相关api导致的线程竞争问题
     auto hls = _hls;
     if (hls) {
-        hls->addTrack(track);
+        ret = hls->addTrack(track) ? true : ret;
     }
     auto mp4 = _mp4;
     if (mp4) {
-        mp4->addTrack(track);
+        ret = mp4->addTrack(track) ? true : ret;
     }
+    return ret;
 }
 
 void MultiMediaSourceMuxer::onAllTrackReady() {
@@ -386,7 +407,7 @@ private:
     Frame::Ptr _frame;
 };
 
-void MultiMediaSourceMuxer::onTrackFrame(const Frame::Ptr &frame_in) {
+bool MultiMediaSourceMuxer::onTrackFrame(const Frame::Ptr &frame_in) {
     GET_CONFIG(bool, modify_stamp, General::kModifyStamp);
     auto frame = frame_in;
     if (modify_stamp) {
@@ -394,39 +415,41 @@ void MultiMediaSourceMuxer::onTrackFrame(const Frame::Ptr &frame_in) {
         frame = std::make_shared<FrameModifyStamp>(frame, _stamp[frame->getTrackType()]);
     }
 
+    bool ret = false;
     if (_rtmp) {
-        _rtmp->inputFrame(frame);
+        ret = _rtmp->inputFrame(frame) ? true : ret;
     }
     if (_rtsp) {
-        _rtsp->inputFrame(frame);
+        ret = _rtsp->inputFrame(frame) ? true : ret;
     }
     if (_ts) {
-        _ts->inputFrame(frame);
+        ret = _ts->inputFrame(frame) ? true : ret;
     }
 
     //拷贝智能指针，目的是为了防止跨线程调用设置录像相关api导致的线程竞争问题
     //此处使用智能指针拷贝来确保线程安全，比互斥锁性能更优
     auto hls = _hls;
     if (hls) {
-        hls->inputFrame(frame);
+        ret = hls->inputFrame(frame) ? true : ret;
     }
     auto mp4 = _mp4;
     if (mp4) {
-        mp4->inputFrame(frame);
+        ret = mp4->inputFrame(frame) ? true : ret;
     }
 
 #if defined(ENABLE_MP4)
     if (_fmp4) {
-        _fmp4->inputFrame(frame);
+        ret = _fmp4->inputFrame(frame) ? true : ret;
     }
 #endif
 
 #if defined(ENABLE_RTPPROXY)
     lock_guard<mutex> lck(_rtp_sender_mtx);
     for (auto &pr : _rtp_sender) {
-        pr.second->inputFrame(frame);
+        ret = pr.second->inputFrame(frame) ? true : ret;
     }
 #endif //ENABLE_RTPPROXY
+    return ret;
 }
 
 bool MultiMediaSourceMuxer::isEnabled(){

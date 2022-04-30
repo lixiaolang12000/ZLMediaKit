@@ -16,21 +16,29 @@
 #include "Extension/H264Rtp.h"
 #include "Extension/Factory.h"
 #include "Extension/Opus.h"
+#include "Extension/G711.h"
+#include "Extension/H265.h"
 
-namespace mediakit{
+using namespace std;
+using namespace toolkit;
+
+namespace mediakit {
 
 //判断是否为ts负载
-static inline bool checkTS(const uint8_t *packet, size_t bytes){
+static inline bool checkTS(const uint8_t *packet, size_t bytes) {
     return bytes % TS_PACKET_SIZE == 0 && packet[0] == TS_SYNC_BYTE;
 }
 
 class RtpReceiverImp : public RtpTrackImp {
 public:
     using Ptr = std::shared_ptr<RtpReceiverImp>;
-    RtpReceiverImp(int sample_rate, RtpTrackImp::OnSorted cb, RtpTrackImp::BeforeSorted cb_before = nullptr){
+
+    RtpReceiverImp(int sample_rate, RtpTrackImp::OnSorted cb, RtpTrackImp::BeforeSorted cb_before = nullptr) {
         _sample_rate = sample_rate;
         setOnSorted(std::move(cb));
         setBeforeSorted(std::move(cb_before));
+        //GB28181推流不支持ntp时间戳
+        setNtpStamp(0, 0);
     }
 
     ~RtpReceiverImp() override = default;
@@ -45,10 +53,10 @@ private:
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 
-GB28181Process::GB28181Process(const MediaInfo &media_info, MediaSinkInterface *interface) {
-    assert(interface);
+GB28181Process::GB28181Process(const MediaInfo &media_info, MediaSinkInterface *sink) {
+    assert(sink);
     _media_info = media_info;
-    _interface = interface;
+    _interface = sink;
 }
 
 GB28181Process::~GB28181Process() {}
@@ -144,6 +152,7 @@ bool GB28181Process::inputRtp(bool, const char *data, size_t data_len) {
         //设置frame回调
         _rtp_decoder[pt]->addDelegate(std::make_shared<FrameWriterInterfaceHelper>([this](const Frame::Ptr &frame) {
             onRtpDecode(frame);
+            return true;
         }));
     }
 

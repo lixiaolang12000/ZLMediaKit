@@ -12,6 +12,7 @@
 #include "Rtmp/utils.h"
 #include "RtmpMediaSource.h"
 using namespace toolkit;
+using namespace std;
 
 #define C1_DIGEST_SIZE 32
 #define C1_KEY_SIZE 128
@@ -55,6 +56,7 @@ static string openssl_HMACsha256(const void *key, size_t key_len, const void *da
 namespace mediakit {
 
 RtmpProtocol::RtmpProtocol() {
+    _packet_pool.setSize(64);
     _next_step_func = [this](const char *data, size_t len) {
         return handle_C0C1(data, len);
     };
@@ -165,7 +167,13 @@ void RtmpProtocol::sendInvoke(const string &cmd, const AMFValue &val) {
 }
 
 void RtmpProtocol::sendRequest(int cmd, const string& str) {
-    sendRtmp(cmd, _stream_index, str, 0, CHUNK_SERVER_REQUEST);
+    if (cmd <= MSG_SET_PEER_BW) {
+        // 若 cmd 属于 Protocol Control Messages ，则应使用 chunk id 2 发送
+        sendRtmp(cmd, _stream_index, str, 0, CHUNK_NETWORK);
+    } else {
+        // 否则使用 chunk id 发送(任意值3-128，参见 obs 及 ffmpeg 选取 3)
+        sendRtmp(cmd, _stream_index, str, 0, CHUNK_SYSTEM);
+    }
 }
 
 class BufferPartial : public Buffer {
@@ -283,6 +291,7 @@ void RtmpProtocol::startClientSession(const function<void()> &func) {
     char handshake_head = HANDSHAKE_PLAINTEXT;
     onSendRawData(obtainBuffer(&handshake_head, 1));
     RtmpHandshake c1(0);
+    c1.create_complex_c0c1();
     onSendRawData(obtainBuffer((char *) (&c1), sizeof(c1)));
     _next_step_func = [this, func](const char *data, size_t len) {
         //等待 S0+S1+S2
@@ -513,6 +522,26 @@ void RtmpProtocol::send_complex_S0S1S2(int schemeType,const string &digest){
 }
 #endif //ENABLE_OPENSSL
 
+//发送复杂握手c0c1
+void RtmpHandshake::create_complex_c0c1() {
+#ifdef ENABLE_OPENSSL
+    memcpy(zero, "\x80\x00\x07\x02", 4);
+    //digest随机偏移长度
+    auto offset_value = rand() % (C1_SCHEMA_SIZE - C1_OFFSET_SIZE - C1_DIGEST_SIZE);
+    //设置digest偏移长度
+    auto offset_ptr = random + C1_SCHEMA_SIZE;
+    offset_ptr[0] = offset_ptr[1] = offset_ptr[2] = offset_value / 4;
+    offset_ptr[3] = offset_value - 3 * (offset_value / 4);
+    //去除digest后的剩余随机数据
+    string str((char *) this, sizeof(*this));
+    str.erase(8 + C1_SCHEMA_SIZE + C1_OFFSET_SIZE + offset_value, C1_DIGEST_SIZE);
+    //获取摘要
+    auto digest_value = openssl_HMACsha256(FPKey, C1_FPKEY_SIZE, str.data(), str.size());
+    //插入摘要
+    memcpy(random + C1_SCHEMA_SIZE + C1_OFFSET_SIZE + offset_value, digest_value.data(), digest_value.size());
+#endif
+}
+
 const char* RtmpProtocol::handle_C2(const char *data, size_t len) {
     if (len < C1_HANDSHARK_SIZE) {
         //need more data!
@@ -685,7 +714,8 @@ void RtmpProtocol::handle_chunk(RtmpPacket::Ptr packet) {
                 case CONTROL_STREAM_BEGIN: {
                     //开始播放
                     if (chunk_data.buffer.size() < 4) {
-                        throw std::runtime_error("CONTROL_STREAM_BEGIN: Not enough data.");
+                        WarnL << "CONTROL_STREAM_BEGIN: Not enough data:" << chunk_data.buffer.size();
+                        break;
                     }
                     uint32_t stream_index = load_be32(&chunk_data.buffer[0]);
                     onStreamBegin(stream_index);
@@ -736,6 +766,9 @@ void RtmpProtocol::handle_chunk(RtmpPacket::Ptr packet) {
         case MSG_AGGREGATE: {
             auto ptr = (uint8_t *) chunk_data.buffer.data();
             auto ptr_tail = ptr + chunk_data.buffer.size();
+            uint32_t latest_ts, timestamp;
+            timestamp = chunk_data.time_stamp;
+            bool first_message = true;
             while (ptr + 8 + 3 < ptr_tail) {
                 auto type = *ptr;
                 ptr += 1;
@@ -751,12 +784,17 @@ void RtmpProtocol::handle_chunk(RtmpPacket::Ptr packet) {
                 if (ptr + size > ptr_tail) {
                     break;
                 }
+                if (!first_message) {
+                    timestamp += ts - latest_ts;
+                }
+                first_message = false;
+                latest_ts = ts;
                 auto sub_packet_ptr = RtmpPacket::create();
                 auto &sub_packet = *sub_packet_ptr;
                 sub_packet.buffer.assign((char *)ptr, size);
                 sub_packet.type_id = type;
                 sub_packet.body_size = size;
-                sub_packet.time_stamp = ts;
+                sub_packet.time_stamp = timestamp;
                 sub_packet.stream_index = chunk_data.stream_index;
                 sub_packet.chunk_id = chunk_data.chunk_id;
                 handle_chunk(std::move(sub_packet_ptr));
@@ -770,7 +808,7 @@ void RtmpProtocol::handle_chunk(RtmpPacket::Ptr packet) {
 }
 
 BufferRaw::Ptr RtmpProtocol::obtainBuffer(const void *data, size_t len) {
-    auto buffer = BufferRaw::create();
+    auto buffer = _packet_pool.obtain2();
     if (data && len) {
         buffer->assign((const char *) data, len);
     }

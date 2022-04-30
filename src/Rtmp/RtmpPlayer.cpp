@@ -14,7 +14,7 @@
 #include "Util/onceToken.h"
 #include "Thread/ThreadPool.h"
 using namespace toolkit;
-using namespace mediakit::Client;
+using namespace std;
 
 namespace mediakit {
 
@@ -40,9 +40,7 @@ void RtmpPlayer::teardown() {
     CLEAR_ARR(_fist_stamp);
     CLEAR_ARR(_now_stamp);
 
-    lock_guard<recursive_mutex> lck(_mtx_on_result);
     _map_on_result.clear();
-    lock_guard<recursive_mutex> lck2(_mtx_on_status);
     _deque_on_status.clear();
 }
 
@@ -67,12 +65,12 @@ void RtmpPlayer::play(const string &strUrl)  {
         //服务器域名
         host_url = FindField(host_url.data(), NULL, ":");
     }
-    if (!(*this)[kNetAdapter].empty()) {
-        setNetAdapter((*this)[kNetAdapter]);
+    if (!(*this)[Client::kNetAdapter].empty()) {
+        setNetAdapter((*this)[Client::kNetAdapter]);
     }
 
     weak_ptr<RtmpPlayer> weak_self = dynamic_pointer_cast<RtmpPlayer>(shared_from_this());
-    float play_timeout_sec = (*this)[kTimeoutMS].as<int>() / 1000.0f;
+    float play_timeout_sec = (*this)[Client::kTimeoutMS].as<int>() / 1000.0f;
     _play_timer.reset(new Timer(play_timeout_sec, [weak_self]() {
         auto strong_self = weak_self.lock();
         if (!strong_self) {
@@ -115,7 +113,7 @@ void RtmpPlayer::onPlayResult_l(const SockException &ex, bool handshake_done) {
     if (!ex) {
         //播放成功，恢复rtmp接收超时定时器
         _rtmp_recv_ticker.resetTime();
-        auto timeout_ms = (*this)[kMediaTimeoutMS].as<uint64_t>();
+        auto timeout_ms = (*this)[Client::kMediaTimeoutMS].as<uint64_t>();
         weak_ptr<RtmpPlayer> weakSelf = dynamic_pointer_cast<RtmpPlayer>(shared_from_this());
         auto lam = [weakSelf, timeout_ms]() {
             auto strongSelf = weakSelf.lock();
@@ -216,7 +214,7 @@ inline void RtmpPlayer::send_createStream() {
 
 inline void RtmpPlayer::send_play() {
     AMFEncoder enc;
-    enc << "play" << ++_send_req_id << nullptr << _stream_id << (double) _stream_index;
+    enc << "play" << ++_send_req_id << nullptr << _stream_id << "-2000";
     sendRequest(MSG_CMD, enc.data());
     auto fun = [](AMFValue &val) {
         //TraceL << "play onStatus";
@@ -257,7 +255,7 @@ inline void RtmpPlayer::send_pause(bool pause) {
     _beat_timer.reset();
     if (pause) {
         weak_ptr<RtmpPlayer> weakSelf = dynamic_pointer_cast<RtmpPlayer>(shared_from_this());
-        _beat_timer.reset(new Timer((*this)[kBeatIntervalMS].as<int>() / 1000.0f, [weakSelf]() {
+        _beat_timer.reset(new Timer((*this)[Client::kBeatIntervalMS].as<int>() / 1000.0f, [weakSelf]() {
             auto strongSelf = weakSelf.lock();
             if (!strongSelf) {
                 return false;
@@ -271,7 +269,6 @@ inline void RtmpPlayer::send_pause(bool pause) {
 
 void RtmpPlayer::onCmd_result(AMFDecoder &dec){
     auto req_id = dec.load<int>();
-    lock_guard<recursive_mutex> lck(_mtx_on_result);
     auto it = _map_on_result.find(req_id);
     if (it != _map_on_result.end()) {
         it->second(dec);
@@ -293,7 +290,6 @@ void RtmpPlayer::onCmd_onStatus(AMFDecoder &dec) {
         throw std::runtime_error("onStatus:the result object was not found");
     }
 
-    lock_guard<recursive_mutex> lck(_mtx_on_status);
     if (_deque_on_status.size()) {
         _deque_on_status.front()(val);
         _deque_on_status.pop_front();
@@ -301,7 +297,8 @@ void RtmpPlayer::onCmd_onStatus(AMFDecoder &dec) {
         auto level = val["level"];
         auto code = val["code"].as_string();
         if (level.type() == AMF_STRING) {
-            if (level.as_string() != "status") {
+            // warning 不应该断开
+            if (level.as_string() != "status" && level.as_string() != "warning") {
                 throw std::runtime_error(StrPrinter << "onStatus 失败:" << level.as_string() << " " << code << endl);
             }
         }

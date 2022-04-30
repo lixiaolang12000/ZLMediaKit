@@ -14,6 +14,7 @@
 #include "Util/util.h"
 #include "Util/uv_errno.h"
 
+using namespace std;
 using namespace toolkit;
 
 namespace mediakit {
@@ -36,12 +37,16 @@ HlsMakerImp::HlsMakerImp(const string &m3u8_file,
 }
 
 HlsMakerImp::~HlsMakerImp() {
-    clearCache(false);
+    clearCache(false, true);
 }
 
-void HlsMakerImp::clearCache(bool immediately) {
+void HlsMakerImp::clearCache() {
+    clearCache(true, false);
+}
+
+void HlsMakerImp::clearCache(bool immediately, bool eof) {
     //录制完了
-    flushLastSegment(true);
+    flushLastSegment(eof);
     if (!isLive()) {
         return;
     }
@@ -110,13 +115,13 @@ void HlsMakerImp::onWriteSegment(const char *data, size_t len) {
     }
 }
 
-void HlsMakerImp::onWriteHls(const char *data, size_t len) {
+void HlsMakerImp::onWriteHls(const std::string &data) {
     auto hls = makeFile(_path_hls);
     if (hls) {
-        fwrite(data, len, 1, hls.get());
+        fwrite(data.data(), data.size(), 1, hls.get());
         hls.reset();
         if (_media_src) {
-            _media_src->registHls(true);
+            _media_src->setIndexFile(data);
         }
     } else {
         WarnL << "create hls file failed," << _path_hls << " " << get_uv_errmsg();
@@ -125,14 +130,13 @@ void HlsMakerImp::onWriteHls(const char *data, size_t len) {
 }
 
 void HlsMakerImp::onFlushLastSegment(uint32_t duration_ms) {
+    //关闭并flush文件到磁盘
+    _file = nullptr;
+
     GET_CONFIG(bool, broadcastRecordTs, Hls::kBroadcastRecordTs);
     if (broadcastRecordTs) {
-        //关闭ts文件以便获取正确的文件大小
-        _file = nullptr;
         _info.time_len = duration_ms / 1000.0f;
-        struct stat fileData;
-        stat(_info.file_path.data(), &fileData);
-        _info.file_size = fileData.st_size;
+        _info.file_size = File::fileSize(_info.file_path.data());
         NoticeCenter::Instance().emitEvent(Broadcast::kBroadcastRecordTs, _info);
     }
 }

@@ -13,7 +13,10 @@
 #include "HlsParser.h"
 #include "Util/util.h"
 #include "Common/Parser.h"
+
+using namespace std;
 using namespace toolkit;
+
 namespace mediakit {
 
 bool HlsParser::parse(const string &http_url, const string &m3u8) {
@@ -135,6 +138,10 @@ int64_t HlsParser::getSequence() const {
 
 bool HlsParser::isM3u8Inner() const {
     return _is_m3u8_inner;
+}
+
+float HlsParser::getTotalDuration() const {
+    return _total_dur;
 }
 
 }//namespace mediakit

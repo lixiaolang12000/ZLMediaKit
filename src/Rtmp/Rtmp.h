@@ -21,8 +21,6 @@
 #include "amf.h"
 #include "Extension/Track.h"
 
-using namespace toolkit;
-
 #if !defined(_WIN32)
 #define PACKED	__attribute__((packed))
 #else
@@ -61,7 +59,8 @@ using namespace toolkit;
 #define STREAM_CONTROL				0
 #define STREAM_MEDIA				1
 
-#define CHUNK_SERVER_REQUEST			2 /*服务器像客户端发出请求时的chunkID*/
+#define CHUNK_NETWORK                   2 /*网络相关的消息(参见 Protocol Control Messages)*/
+#define CHUNK_SYSTEM                    3 /*向服务器发送控制消息(反之亦可)*/
 #define CHUNK_CLIENT_REQUEST_BEFORE		3 /*客户端在createStream前,向服务器发出请求的chunkID*/
 #define CHUNK_CLIENT_REQUEST_AFTER		4 /*客户端在createStream后,向服务器发出请求的chunkID*/
 #define CHUNK_AUDIO						6 /*音频chunkID*/
@@ -111,6 +110,9 @@ public:
             bytes[i] = cdata[rand() % (sizeof(cdata) - 1)];
         }
     }
+
+    void create_complex_c0c1();
+
 }PACKED;
 
 class RtmpHeader {
@@ -171,7 +173,7 @@ public:
 #pragma pack(pop)
 #endif // defined(_WIN32)
 
-class RtmpPacket : public Buffer{
+class RtmpPacket : public toolkit::Buffer{
 public:
     friend class RtmpProtocol;
     using Ptr = std::shared_ptr<RtmpPacket>;
@@ -182,7 +184,7 @@ public:
     uint32_t stream_index;
     uint32_t chunk_id;
     size_t body_size;
-    BufferLikeString buffer;
+    toolkit::BufferLikeString buffer;
 
 public:
     static Ptr create();
@@ -255,7 +257,7 @@ public:
     }
 
 private:
-    friend class ResourcePool_l<RtmpPacket>;
+    friend class toolkit::ResourcePool_l<RtmpPacket>;
     RtmpPacket(){
         clear();
     }
@@ -272,7 +274,7 @@ private:
 
 private:
     //对象个数统计
-    ObjectStatistic<RtmpPacket> _statistic;
+    toolkit::ObjectStatistic<RtmpPacket> _statistic;
 };
 
 /**
@@ -302,10 +304,10 @@ public:
 
     TitleMeta(float dur_sec = 0,
               size_t fileSize = 0,
-              const map<string,string> &header = map<string,string>()){
+              const std::map<std::string, std::string> &header = std::map<std::string, std::string>()){
         _metadata.set("duration", dur_sec);
         _metadata.set("fileSize", (int)fileSize);
-        _metadata.set("server",SERVER_NAME);
+        _metadata.set("server",kServerName);
         for (auto &pr : header){
             _metadata.set(pr.first, pr.second);
         }

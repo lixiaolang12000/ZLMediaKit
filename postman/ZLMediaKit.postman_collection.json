@@ -496,18 +496,6 @@
 							"description": "拉流地址，例如rtmp://live.hkstv.hk.lxdns.com/live/hks2"
 						},
 						{
-							"key": "enable_hls",
-							"value": null,
-							"description": "是否转hls",
-							"disabled": true
-						},
-						{
-							"key": "enable_mp4",
-							"value": null,
-							"description": "是否mp4录制",
-							"disabled": true
-						},
-						{
 							"key": "rtp_type",
 							"value": null,
 							"description": "rtsp拉流时，拉流方式，0：tcp，1：udp，2：组播",
@@ -521,8 +509,74 @@
 						},
 						{
 							"key": "retry_count",
-							"value": null,
+							"value": "",
 							"description": "拉流重试次数,不传此参数或传值<=0时，则无限重试",
+							"disabled": true
+						},
+						{
+							"key": "enable_hls",
+							"value": null,
+							"description": "是否转hls",
+							"disabled": true
+						},
+						{
+							"key": "enable_mp4",
+							"value": null,
+							"description": "是否mp4录制",
+							"disabled": true
+						},
+						{
+							"key": "enable_rtsp",
+							"value": "1",
+							"description": "是否转协议为rtsp/webrtc",
+							"disabled": true
+						},
+						{
+							"key": "enable_rtmp",
+							"value": "1",
+							"description": "是否转协议为rtmp/flv",
+							"disabled": true
+						},
+						{
+							"key": "enable_ts",
+							"value": "1",
+							"description": "是否转协议为http-ts/ws-ts",
+							"disabled": true
+						},
+						{
+							"key": "enable_fmp4",
+							"value": "1",
+							"description": "是否转协议为http-fmp4/ws-fmp4",
+							"disabled": true
+						},
+						{
+							"key": "enable_audio",
+							"value": "1",
+							"description": "转协议是否开启音频",
+							"disabled": true
+						},
+						{
+							"key": "add_mute_audio",
+							"value": "1",
+							"description": "转协议无音频时，是否添加静音aac音频",
+							"disabled": true
+						},
+						{
+							"key": "mp4_save_path",
+							"value": null,
+							"description": "mp4录制保存根目录，置空使用默认目录",
+							"disabled": true
+						},
+						{
+							"key": "mp4_max_second",
+							"value": "1800",
+							"description": "mp4录制切片大小，单位秒",
+							"disabled": true
+						},
+						{
+							"key": "hls_save_path",
+							"value": null,
+							"description": "hls保存根目录，置空使用默认目录",
 							"disabled": true
 						}
 					]
@@ -945,6 +999,98 @@
 			"response": []
 		},
 		{
+			"name": "设置录像速度(setRecordSpeed)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{ZLMediaKit_URL}}/index/api/setRecordSpeed?secret={{ZLMediaKit_secret}}&vhost={{defaultVhost}}&app=live&stream=obs&speed=2.0",
+					"host": [
+						"{{ZLMediaKit_URL}}"
+					],
+					"path": [
+						"index",
+						"api",
+						"setRecordSpeed"
+					],
+					"query": [
+						{
+							"key": "secret",
+							"value": "{{ZLMediaKit_secret}}",
+							"description": "api操作密钥(配置文件配置)，如果操作ip是127.0.0.1，则不需要此参数"
+						},
+						{
+							"key": "vhost",
+							"value": "{{defaultVhost}}",
+							"description": "虚拟主机，例如__defaultVhost__"
+						},
+						{
+							"key": "app",
+							"value": "live",
+							"description": "应用名，例如 live"
+						},
+						{
+							"key": "stream",
+							"value": "obs",
+							"description": "流id，例如 obs"
+						},
+						{
+							"key": "speed",
+							"value": 2.0,
+							"description": "要设置的录像倍速"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "设置录像流播放位置(seekRecordStamp)",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{ZLMediaKit_URL}}/index/api/startRecord?secret={{ZLMediaKit_secret}}&vhost={{defaultVhost}}&app=live&stream=obs&stamp=1000",
+					"host": [
+						"{{ZLMediaKit_URL}}"
+					],
+					"path": [
+						"index",
+						"api",
+						"seekRecordStamp"
+					],
+					"query": [
+						{
+							"key": "secret",
+							"value": "{{ZLMediaKit_secret}}",
+							"description": "api操作密钥(配置文件配置)，如果操作ip是127.0.0.1，则不需要此参数"
+						},
+						{
+							"key": "vhost",
+							"value": "{{defaultVhost}}",
+							"description": "虚拟主机，例如__defaultVhost__"
+						},
+						{
+							"key": "app",
+							"value": "live",
+							"description": "应用名，例如 live"
+						},
+						{
+							"key": "stream",
+							"value": "obs",
+							"description": "流id，例如 obs"
+						},
+						{
+							"key": "stamp",
+							"value": 1000,
+							"description": "要设置的录像播放位置"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
 			"name": "停止录制(stopRecord)",
 			"request": {
 				"method": "GET",
@@ -1143,6 +1289,18 @@
 							"key": "stream_id",
 							"value": "test",
 							"description": "该端口绑定的流id\n"
+						},
+						{
+							"key": "re_use_port",
+							"value": "0",
+							"description": "是否重用端口，默认为0，非必选参数",
+							"disabled": true
+						},
+						{
+							"key": "ssrc",
+							"value": "0",
+							"description": "是否指定收流的rtp ssrc, 十进制数字，不指定或指定0时则不过滤rtp，非必选参数",
+							"disabled": true
 						}
 					]
 				}
@@ -1328,6 +1486,30 @@
 							"key": "src_port",
 							"value": "0",
 							"description": "指定tcp/udp客户端使用的本地端口，0时为随机端口，该参数非必选参数，不传时为随机端口。",
+							"disabled": true
+						},
+						{
+							"key": "from_mp4",
+							"value": "0",
+							"description": "是否推送本地MP4录像，该参数非必选参数",
+							"disabled": true
+						},
+						{
+							"key": "use_ps",
+							"value": "1",
+							"description": "rtp打包采用ps还是es模式，默认采用ps模式，该参数非必选参数",
+							"disabled": true
+						},
+						{
+							"key": "pt",
+							"value": "96",
+							"description": "rtp payload type，默认96，该参数非必选参数",
+							"disabled": true
+						},
+						{
+							"key": "only_audio",
+							"value": "1",
+							"description": "rtp es方式打包时，是否只打包音频，该参数非必选参数",
 							"disabled": true
 						}
 					]

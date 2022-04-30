@@ -47,8 +47,6 @@ typedef void* mk_parser;
 API_EXPORT const char* API_CALL mk_parser_get_method(const mk_parser ctx);
 //Parser::Url(),获取HTTP的访问url(不包括?后面的参数)
 API_EXPORT const char* API_CALL mk_parser_get_url(const mk_parser ctx);
-//Parser::FullUrl(),包括?后面的参数
-API_EXPORT const char* API_CALL mk_parser_get_full_url(const mk_parser ctx);
 //Parser::Params(),?后面的参数字符串
 API_EXPORT const char* API_CALL mk_parser_get_url_params(const mk_parser ctx);
 //Parser::getUrlArgs()["key"],获取?后面的参数中的特定参数
@@ -179,6 +177,14 @@ API_EXPORT void API_CALL mk_http_response_invoker_do(const mk_http_response_invo
                                                      int response_code,
                                                      const char **response_header,
                                                      const mk_http_body response_body);
+/**
+ * HttpSession::HttpResponseInvoker(const string &codeOut, const StrCaseMap &headerOut, const HttpBody::Ptr &body);
+   Parser();
+   SockInfo();
+ */
+API_EXPORT void API_CALL mk_webrtc_http_response_invoker_do( const mk_http_response_invoker invoker,
+                                                            const mk_parser parser,
+                                                            const mk_sock_info sender);
 
 /**
  * HttpSession::HttpResponseInvoker(const string &codeOut, const StrCaseMap &headerOut, const string &body);

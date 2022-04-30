@@ -15,7 +15,6 @@
 #include "Extension/Track.h"
 #include "Util/ResourcePool.h"
 #include "Extension/H264.h"
-using namespace toolkit;
 
 namespace mediakit{
 /**
@@ -40,13 +39,13 @@ public:
     }
 
 protected:
-    void onGetH264(const char *pcData, size_t iLen, uint32_t dts,uint32_t pts);
+    void onGetH264(const char *data, size_t len, uint32_t dts, uint32_t pts);
     H264Frame::Ptr obtainFrame();
 
 protected:
     H264Frame::Ptr _h264frame;
-    string _sps;
-    string _pps;
+    std::string _sps;
+    std::string _pps;
 };
 
 /**
@@ -69,7 +68,7 @@ public:
      * 输入264帧，可以不带sps pps
      * @param frame 帧数据
      */
-    void inputFrame(const Frame::Ptr &frame) override;
+    bool inputFrame(const Frame::Ptr &frame) override;
 
     /**
      * 生成config包
