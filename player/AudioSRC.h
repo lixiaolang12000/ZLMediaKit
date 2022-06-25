@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2016 The ZLMediaKit project authors. All Rights Reserved.
  *
  * This file is part of ZLMediaKit(https://github.com/ZLMediaKit/ZLMediaKit).
@@ -30,9 +30,6 @@ extern "C" {
 #include "SDLAudioDevice.h"
 #include "FFMpegDecoder.h"
 
-using namespace std;
-using namespace toolkit;
-
 class AudioSRCDelegate {
 public:
     virtual ~AudioSRCDelegate() {};
@@ -55,10 +52,10 @@ public:
 
 private:
     bool _enabled = true;
-    int _origin_size = 0;
-    std::shared_ptr<char> _origin_buf;
+    int _buf_size = 0;
+    std::shared_ptr<char> _buf;
     AudioSRCDelegate *_delegate = nullptr;
-    BufferLikeString _target_buf;
+    toolkit::BufferLikeString _target_buf;
     SDL_AudioCVT _audio_cvt;
 };
 
@@ -79,8 +76,8 @@ private:
 private:
     int _sample_rate, _channel;
     SDL_AudioFormat _format;
-    mutex _mtx;
-    BufferLikeString _buffer;
+    std::mutex _mtx;
+    toolkit::BufferLikeString _buffer;
     SDLAudioDevice::Ptr _device;
 };
 

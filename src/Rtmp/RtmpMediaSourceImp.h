@@ -23,11 +23,10 @@
 #include "RtmpMediaSource.h"
 #include "RtmpDemuxer.h"
 #include "Common/MultiMediaSourceMuxer.h"
-using namespace std;
-using namespace toolkit;
 
 namespace mediakit {
-class RtmpMediaSourceImp: public RtmpMediaSource, public TrackListener , public MultiMediaSourceMuxer::Listener {
+
+class RtmpMediaSourceImp: public RtmpMediaSource, private TrackListener, public MultiMediaSourceMuxer::Listener {
 public:
     typedef std::shared_ptr<RtmpMediaSourceImp> Ptr;
 
@@ -38,7 +37,7 @@ public:
      * @param id 流id
      * @param ringSize 环形缓存大小
      */
-    RtmpMediaSourceImp(const string &vhost, const string &app, const string &id, int ringSize = RTMP_GOP_SIZE) : RtmpMediaSource(vhost, app, id, ringSize) {
+    RtmpMediaSourceImp(const std::string &vhost, const std::string &app, const std::string &id, int ringSize = RTMP_GOP_SIZE) : RtmpMediaSource(vhost, app, id, ringSize) {
         _demuxer = std::make_shared<RtmpDemuxer>();
         _demuxer->setTrackListener(this);
     }
@@ -77,31 +76,39 @@ public:
 
     /**
      * 设置协议转换
-     * @param enableHls  是否转换成hls
-     * @param enableMP4  是否mp4录制
      */
-    void setProtocolTranslation(bool enableHls, bool enableMP4) {
+    void setProtocolOption(const ProtocolOption &option) {
         //不重复生成rtmp
-        _muxer = std::make_shared<MultiMediaSourceMuxer>(getVhost(), getApp(), getId(), _demuxer->getDuration(), true, false, enableHls, enableMP4);
+        _option = option;
+        //不重复生成rtmp协议
+        _option.enable_rtmp = false;
+        _muxer = std::make_shared<MultiMediaSourceMuxer>(getVhost(), getApp(), getId(), _demuxer->getDuration(), _option);
         _muxer->setMediaListener(getListener());
-        _muxer->setTrackListener(static_pointer_cast<RtmpMediaSourceImp>(shared_from_this()));
+        _muxer->setTrackListener(std::static_pointer_cast<RtmpMediaSourceImp>(shared_from_this()));
         //让_muxer对象拦截一部分事件(比如说录像相关事件)
         MediaSource::setListener(_muxer);
 
-        for(auto &track : _demuxer->getTracks(false)){
+        for (auto &track : _demuxer->getTracks(false)) {
             _muxer->addTrack(track);
             track->addDelegate(_muxer);
         }
     }
 
+    const ProtocolOption &getProtocolOption() const {
+        return _option;
+    }
+
     /**
      * _demuxer触发的添加Track事件
      */
-    void addTrack(const Track::Ptr &track) override {
-        if(_muxer){
-            _muxer->addTrack(track);
-            track->addDelegate(_muxer);
+    bool addTrack(const Track::Ptr &track) override {
+        if (_muxer) {
+            if (_muxer->addTrack(track)) {
+                track->addDelegate(_muxer);
+                return true;
+            }
         }
+        return false;
     }
 
     /**
@@ -151,6 +158,7 @@ public:
 private:
     bool _all_track_ready = false;
     bool _recreate_metadata = false;
+    ProtocolOption _option;
     AMFValue _metadata;
     RtmpDemuxer::Ptr _demuxer;
     MultiMediaSourceMuxer::Ptr _muxer;

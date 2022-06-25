@@ -222,8 +222,13 @@ bool H265RtpDecoder::singleFrame(const RtpPacket::Ptr &rtp, const uint8_t *ptr, 
 }
 
 void H265RtpDecoder::outputFrame(const RtpPacket::Ptr &rtp, const H265Frame::Ptr &frame) {
-    //rtsp没有dts，那么根据pts排序算法生成dts
-    _dts_generator.getDts(frame->_pts, frame->_dts);
+    if (frame->dropAble()) {
+        //不参与dts生成
+        frame->_dts = frame->_pts;
+    } else {
+        //rtsp没有dts，那么根据pts排序算法生成dts
+        _dts_generator.getDts(frame->_pts, frame->_dts);
+    }
 
     if (frame->keyFrame() && _gop_dropped) {
         _gop_dropped = false;
@@ -249,7 +254,7 @@ H265RtpEncoder::H265RtpEncoder(uint32_t ui32Ssrc,
                 ui8Interleaved) {
 }
 
-void H265RtpEncoder::inputFrame(const Frame::Ptr &frame) {
+bool H265RtpEncoder::inputFrame(const Frame::Ptr &frame) {
     auto ptr = (uint8_t *) frame->data() + frame->prefixSize();
     auto len = frame->size() - frame->prefixSize();
     auto pts = frame->pts();
@@ -300,6 +305,7 @@ void H265RtpEncoder::inputFrame(const Frame::Ptr &frame) {
     } else {
         RtpCodec::inputRtp(makeRtp(getTrackType(), ptr, len, false, pts), frame->keyFrame());
     }
+    return len > 0;
 }
 
 }//namespace mediakit

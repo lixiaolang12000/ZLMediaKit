@@ -5,7 +5,17 @@ set(CMAKE_CXX_STANDARD 11)
 #加载自定义模块
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+find_program(CCACHE_FOUND ccache)
+if(CCACHE_FOUND)
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
+endif(CCACHE_FOUND)
+
 #set(CMAKE_BUILD_TYPE "Release")
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
+    set(CMAKE_BUILD_TYPE "Debug")
+endif ()
+
 message(STATUS "编译类型:${CMAKE_BUILD_TYPE}")
 
 #设置bin和lib库目录
@@ -15,6 +25,18 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     SET(LIBRARY_OUTPUT_PATH ${RELEASE_DIR}/linux/${CMAKE_BUILD_TYPE})
     SET(EXECUTABLE_OUTPUT_PATH ${RELEASE_DIR}/linux/${CMAKE_BUILD_TYPE})
     add_compile_options(-fPIC -Wall -Wno-unused-variable -Wno-unused-value)
+    INCLUDE(CheckCXXSourceCompiles)
+    file(READ ${CMAKE_CURRENT_SOURCE_DIR}/cmake/checks/atomic_check.cpp atomic_check_cpp)
+    CHECK_CXX_SOURCE_COMPILES("${atomic_check_cpp}" HAVE_CXX_ATOMICS_WITHOUT_LIB)
+    if(NOT HAVE_CXX_ATOMICS_WITHOUT_LIB)
+        list(APPEND CMAKE_REQUIRED_LIBRARIES "atomic")
+        CHECK_CXX_SOURCE_COMPILES("${atomic_check_cpp}" HAVE_CXX_ATOMICS_WITH_LIB)
+        if(NOT HAVE_CXX_ATOMICS_WITH_LIB)
+            message(WARNING "Compiler doesn't support std::atomic<long long>")
+        else()
+            set(CMAKE_CXX_LINK_FLAGS "${CMAKE_CXX_LINK_FLAGS} -latomic")
+        endif()
+    endif()
 elseif (CMAKE_SYSTEM_NAME MATCHES "Windows")
     if (CMAKE_CL_64)
         set(CL_32_64 64)
@@ -54,9 +76,41 @@ option(ENABLE_TESTS "Enable Tests" true)
 option(ENABLE_SERVER "Enable Server" true)
 option(ENABLE_MEM_DEBUG "Enable Memory Debug" false)
 option(ENABLE_ASAN "Enable Address Sanitize" false)
-option(ENABLE_WEBRTC "Enable WebRTC" false)
+option(ENABLE_WEBRTC "Enable WebRTC" true)
 option(ENABLE_PLAYER "Enable Player" true)
 option(ENABLE_MSVC_MT "Enable MSVC Mt/Mtd lib" true)
+option(ENABLE_API_STATIC_LIB "Enable mk_api static lib" false)
+option(USE_SOLUTION_FOLDERS "Enable solution dir supported" ON)
+# ----------------------------------------------------------------------------
+# Solution folders:
+# ----------------------------------------------------------------------------
+if(USE_SOLUTION_FOLDERS)
+    set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+    set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "CMakeTargets")
+endif()
+
+function(set_file_group prefix)
+    message(STATUS "set_file_group " ${prefix} " " ${ARGC})
+    foreach(FILE IN LISTS ARGN 1)
+       # Get the directory of the source file
+       get_filename_component(PARENT_DIR "${FILE}" DIRECTORY)
+
+       # Remove common directory prefix to make the group
+       string(REPLACE "${prefix}" "" GROUP "${PARENT_DIR}")
+
+      # Make sure we are using windows slashes
+       string(REPLACE "/" "\\" GROUP "${GROUP}")
+
+       # Group into "Source Files" and "Header Files"
+       #if ("${FILE}" MATCHES ".*\\.cpp")
+       #   set(GROUP "Source Files${GROUP}")
+       #elseif("${FILE}" MATCHES ".*\\.h")
+       #   set(GROUP "Header Files${GROUP}")
+       #endif()
+       #message(STATUS ${GROUP} " : " ${FILE})
+       source_group("${GROUP}" FILES "${FILE}")
+    endforeach()
+endfunction()
 
 if (MSVC AND ENABLE_MSVC_MT)
     set(CompilerFlags
@@ -136,11 +190,12 @@ if (OPENSSL_FOUND AND ENABLE_OPENSSL)
     message(STATUS "found library:${OPENSSL_LIBRARIES},ENABLE_OPENSSL defined")
     include_directories(${OPENSSL_INCLUDE_DIR})
     add_definitions(-DENABLE_OPENSSL)
-    list(APPEND LINK_LIB_LIST ${OPENSSL_LIBRARIES})
+    list(APPEND LINK_LIB_LIST ${OPENSSL_LIBRARIES} Crypt32.lib ws2_32.lib)
     if (CMAKE_SYSTEM_NAME MATCHES "Linux" AND OPENSSL_USE_STATIC_LIBS)
         list(APPEND LINK_LIB_LIST dl)
     endif ()
 else ()
+    set(ENABLE_OPENSSL off)
     message(WARNING "openssl未找到，rtmp将不支持flash播放器，https/wss/rtsps/rtmps也将失效")
 endif ()
 
@@ -176,10 +231,7 @@ endif ()
 set(VS_FALGS "/wd4819")
 
 #添加mpeg用于支持ts生成
-if (ENABLE_HLS)
-    message(STATUS "ENABLE_HLS defined")
-    add_definitions(-DENABLE_HLS)
-
+if (ENABLE_RTPPROXY OR ENABLE_HLS)
     include_directories(${MediaServer_Root}/libmpeg/include)
     aux_source_directory(${MediaServer_Root}/libmpeg/include src_mpeg)
     aux_source_directory(${MediaServer_Root}/libmpeg/source src_mpeg)
@@ -217,10 +269,14 @@ if (ENABLE_MP4)
     endif ()
 endif ()
 
-#添加rtp库用于rtp转ps/ts
-if (ENABLE_RTPPROXY AND ENABLE_HLS)
+if (ENABLE_RTPPROXY)
     message(STATUS "ENABLE_RTPPROXY defined")
     add_definitions(-DENABLE_RTPPROXY)
+endif ()
+
+if (ENABLE_HLS)
+    message(STATUS "ENABLE_HLS defined")
+    add_definitions(-DENABLE_HLS)
 endif ()
 
 #收集源代码
@@ -238,6 +294,11 @@ else ()
     #防止Windows.h包含Winsock.h
     add_definitions(-DWIN32_LEAN_AND_MEAN -DMP4V2_NO_STDINT_DEFS -D_CRT_SECURE_NO_WARNINGS -D_WINSOCK_DEPRECATED_NO_WARNINGS)
 endif ()
+
+if (USE_SOLUTION_FOLDERS AND (NOT GROUP_BY_EXPLORER))    # 在 IDE 中对文件进行分组，源文件和头文件分开
+   set_file_group(${ToolKit_Root} ${ToolKit_src_list})
+   set_file_group("${CMAKE_CURRENT_SOURCE_DIR}/src" ${MediaKit_src_list})
+endif()
 
 #添加库
 add_library(zltoolkit STATIC ${ToolKit_src_list})
@@ -275,15 +336,11 @@ endif ()
 execute_process(COMMAND cp -r ${CMAKE_CURRENT_SOURCE_DIR}/www ${EXECUTABLE_OUTPUT_PATH}/)
 execute_process(COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/conf/config.ini ${EXECUTABLE_OUTPUT_PATH}/)
 
-#添加c库
-if (ENABLE_API)
-    add_subdirectory(api)
-endif ()
 
 if (ENABLE_WEBRTC)
     #查找srtp是否安装
     find_package(SRTP QUIET)
-    if (SRTP_FOUND)
+    if (SRTP_FOUND AND ENABLE_OPENSSL)
         message(STATUS "found library:${SRTP_LIBRARIES}")
         include_directories(${SRTP_INCLUDE_DIRS})
         list(APPEND LINK_LIB_LIST ${SRTP_LIBRARIES})
@@ -295,8 +352,14 @@ if (ENABLE_WEBRTC)
         list(APPEND LINK_LIB_LIST webrtc)
         message(STATUS "webrtc功能已开启")
     else ()
+        set(ENABLE_WEBRTC off)
         message(WARNING "srtp未找到, webrtc相关功能打开失败")
     endif ()
+endif ()
+
+#添加c库
+if (ENABLE_API)
+    add_subdirectory(api)
 endif ()
 
 #ios不编译可执行程序

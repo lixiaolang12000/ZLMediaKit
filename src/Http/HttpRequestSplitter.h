@@ -13,8 +13,6 @@
 
 #include <string>
 #include "Network/Buffer.h"
-using namespace std;
-using namespace toolkit;
 
 namespace mediakit {
 
@@ -30,6 +28,21 @@ public:
      * @warning 实际内存需保证不小于 len + 1, 内部使用 strstr 进行查找, 为防止查找越界, 会在 @p len + 1 的位置设置 '\0' 结束符.
      */
     virtual void input(const char *data, size_t len);
+
+    /**
+     * 恢复初始设置
+     */
+    void reset();
+
+    /**
+     * 剩余数据大小
+     */
+    size_t remainDataSize();
+
+    /**
+     * 获取剩余数据指针
+     */
+    const char *remainData() const;
 
 protected:
     /**
@@ -65,25 +78,10 @@ protected:
      */
     void setContentLen(ssize_t content_len);
 
-    /**
-     * 恢复初始设置
-     */
-     void reset();
-
-     /**
-      * 剩余数据大小
-      */
-     size_t remainDataSize();
-
-     /**
-      * 获取剩余数据指针
-      */
-     const char *remainData() const;
-
 private:
     ssize_t _content_len = 0;
     size_t _remain_data_size = 0;
-    BufferLikeString _remain_data;
+    toolkit::BufferLikeString _remain_data;
 };
 
 } /* namespace mediakit */

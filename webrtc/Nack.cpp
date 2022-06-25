@@ -10,24 +10,33 @@
 
 #include "Nack.h"
 
-static constexpr uint32_t kMaxNackMS = 10 * 1000;
+using namespace std;
+using namespace toolkit;
+using namespace mediakit;
 
-void NackList::push_back(RtpPacket::Ptr rtp) {
+static constexpr uint32_t kMaxNackMS = 5 * 1000;
+static constexpr uint32_t kRtpCacheCheckInterval = 100;
+
+void NackList::pushBack(RtpPacket::Ptr rtp) {
     auto seq = rtp->getSeq();
     _nack_cache_seq.emplace_back(seq);
     _nack_cache_pkt.emplace(seq, std::move(rtp));
-    while (get_cache_ms() > kMaxNackMS) {
+    if (++_cache_ms_check < kRtpCacheCheckInterval) {
+        return;
+    }
+    _cache_ms_check = 0;
+    while (getCacheMS() >= kMaxNackMS) {
         //需要清除部分nack缓存
-        pop_front();
+        popFront();
     }
 }
 
-void NackList::for_each_nack(const FCI_NACK &nack, const function<void(const RtpPacket::Ptr &rtp)> &func) {
+void NackList::forEach(const FCI_NACK &nack, const function<void(const RtpPacket::Ptr &rtp)> &func) {
     auto seq = nack.getPid();
     for (auto bit : nack.getBitArray()) {
         if (bit) {
             //丢包
-            RtpPacket::Ptr *ptr = get_rtp(seq);
+            RtpPacket::Ptr *ptr = getRtp(seq);
             if (ptr) {
                 func(*ptr);
             }
@@ -36,7 +45,7 @@ void NackList::for_each_nack(const FCI_NACK &nack, const function<void(const Rtp
     }
 }
 
-void NackList::pop_front() {
+void NackList::popFront() {
     if (_nack_cache_seq.empty()) {
         return;
     }
@@ -44,7 +53,7 @@ void NackList::pop_front() {
     _nack_cache_seq.pop_front();
 }
 
-RtpPacket::Ptr *NackList::get_rtp(uint16_t seq) {
+RtpPacket::Ptr *NackList::getRtp(uint16_t seq) {
     auto it = _nack_cache_pkt.find(seq);
     if (it == _nack_cache_pkt.end()) {
         return nullptr;
@@ -52,18 +61,37 @@ RtpPacket::Ptr *NackList::get_rtp(uint16_t seq) {
     return &it->second;
 }
 
-uint32_t NackList::get_cache_ms() {
-    if (_nack_cache_seq.size() < 2) {
-        return 0;
+uint32_t NackList::getCacheMS() {
+    while (_nack_cache_seq.size() > 2) {
+        auto back_stamp = getRtpStamp(_nack_cache_seq.back());
+        if (back_stamp == -1) {
+            _nack_cache_seq.pop_back();
+            continue;
+        }
+
+        auto front_stamp = getRtpStamp(_nack_cache_seq.front());
+        if (front_stamp == -1) {
+            _nack_cache_seq.pop_front();
+            continue;
+        }
+
+        if (back_stamp >= front_stamp) {
+            return back_stamp - front_stamp;
+        }
+        //很有可能回环了
+        return back_stamp + (UINT32_MAX - front_stamp);
     }
-    uint32_t back = _nack_cache_pkt[_nack_cache_seq.back()]->getStampMS();
-    uint32_t front = _nack_cache_pkt[_nack_cache_seq.front()]->getStampMS();
-    if (back >= front) {
-        return back - front;
-    }
-    //很有可能回环了
-    return back + (UINT32_MAX - front);
+    return 0;
 }
+
+int64_t NackList::getRtpStamp(uint16_t seq) {
+    auto it = _nack_cache_pkt.find(seq);
+    if (it == _nack_cache_pkt.end()) {
+        return -1;
+    }
+    return it->second->getStampMS(false);
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -94,7 +122,7 @@ void NackContext::received(uint16_t seq, bool is_rtx) {
         return;
     }
 
-    if (_seq.size() == diff + 1 && _last_max_seq + 1 == min_seq) {
+    if (_seq.size() == (size_t)diff + 1 && _last_max_seq + 1 == min_seq) {
         //都是连续的seq，未丢包
         _seq.clear();
         _last_max_seq = max_seq;
@@ -107,10 +135,10 @@ void NackContext::received(uint16_t seq, bool is_rtx) {
 
         //有丢包，丢包从_last_max_seq开始
         auto nack_rtp_count = FCI_NACK::kBitSize;
-        if (max_seq - _last_max_seq > nack_rtp_count) {
+        if (max_seq  > nack_rtp_count + _last_max_seq) {
             vector<bool> vec;
             vec.resize(FCI_NACK::kBitSize, false);
-            for (auto i = 0; i < nack_rtp_count; ++i) {
+            for (size_t i = 0; i < nack_rtp_count; ++i) {
                 vec[i] = _seq.find(_last_max_seq + i + 2) == _seq.end();
             }
             doNack(FCI_NACK(_last_max_seq + 1, vec), true);
@@ -224,7 +252,7 @@ uint64_t NackContext::reSendNack() {
             continue;
         }
         auto inc = *it - pid;
-        if (inc > FCI_NACK::kBitSize) {
+        if (inc > (ssize_t)FCI_NACK::kBitSize) {
             //新的nack包
             doNack(FCI_NACK(pid, vec), false);
             pid = -1;

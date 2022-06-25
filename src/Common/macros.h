@@ -11,10 +11,9 @@
 #ifndef ZLMEDIAKIT_MACROS_H
 #define ZLMEDIAKIT_MACROS_H
 
-#if defined(ENABLE_VERSION)
-#include "Version.h"
-#endif
-
+#include <iostream>
+#include <sstream>
+#include "Util/logger.h"
 #if defined(__MACH__)
 #include <arpa/inet.h>
     #include <machine/endian.h>
@@ -42,7 +41,7 @@
 #endif
 
 #ifndef CHECK
-#define CHECK(exp) Assert_Throw(!(exp), #exp, __FUNCTION__, __FILE__, __LINE__)
+#define CHECK(exp,...) mediakit::Assert_ThrowCpp(!(exp), #exp, __FUNCTION__, __FILE__, __LINE__, ##__VA_ARGS__)
 #endif//CHECK
 
 #ifndef MAX
@@ -67,6 +66,7 @@
 #define VHOST_KEY "vhost"
 #define HTTP_SCHEMA "http"
 #define RTSP_SCHEMA "rtsp"
+#define RTC_SCHEMA "rtc"
 #define RTMP_SCHEMA "rtmp"
 #define HLS_SCHEMA "hls"
 #define TS_SCHEMA "ts"
@@ -76,9 +76,23 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-extern void Assert_Throw(int failed, const char *exp, const char *func, const char *file, int line);
+extern void Assert_Throw(int failed, const char *exp, const char *func, const char *file, int line, const char *str);
 #ifdef __cplusplus
 }
 #endif
 
+namespace mediakit {
+
+extern const char kServerName[];
+
+template<typename ...ARGS>
+void Assert_ThrowCpp(int failed, const char *exp, const char *func, const char *file, int line, ARGS &&...args) {
+    if (failed) {
+        std::stringstream ss;
+        toolkit::LoggerWrapper::appendLog(ss, std::forward<ARGS>(args)...);
+        Assert_Throw(failed, exp, func, file, line, ss.str().data());
+    }
+}
+
+}//namespace mediakit
 #endif //ZLMEDIAKIT_MACROS_H

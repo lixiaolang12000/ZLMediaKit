@@ -10,53 +10,41 @@
 
 #include "HttpRequester.h"
 
-namespace mediakit{
+using namespace std;
+using namespace toolkit;
 
-HttpRequester::HttpRequester(){
-    
-}
-HttpRequester::~HttpRequester(){
-    
+namespace mediakit {
+
+void HttpRequester::onResponseHeader(const string &status, const HttpHeader &headers) {
+    _res_body.clear();
 }
 
-ssize_t HttpRequester::onResponseHeader(const string &status,const HttpHeader &headers) {
-    _strRecvBody.clear();
-    return HttpClientImp::onResponseHeader(status, headers);
+void HttpRequester::onResponseBody(const char *buf, size_t size) {
+    _res_body.append(buf, size);
 }
-    
-void HttpRequester::onResponseBody(const char *buf,size_t size,size_t recvedSize,size_t totalSize) {
-    _strRecvBody.append(buf,size);
-}
-    
-void HttpRequester::onResponseCompleted() {
-    if(_onResult){
-        _onResult(SockException(),responseStatus(),responseHeader(),_strRecvBody);
-        _onResult = nullptr;
+
+void HttpRequester::onResponseCompleted(const SockException &ex) {
+    const_cast<Parser &>(response()).setContent(std::move(_res_body));
+    if (_on_result) {
+        _on_result(ex, response());
+        _on_result = nullptr;
     }
 }
-    
-void HttpRequester::onDisconnect(const SockException &ex){
-    if(_onResult){
-        const_cast<Parser &>(response()).setContent(_strRecvBody);
-        _onResult(ex,responseStatus(),responseHeader(),_strRecvBody);
-        _onResult = nullptr;
-    }
-}
-    
-void HttpRequester::startRequester(const string &url,const HttpRequesterResult &onResult , float timeOutSecond){
-    _onResult = onResult;
-    sendRequest(url,timeOutSecond);
+
+void HttpRequester::startRequester(const string &url, const HttpRequesterResult &on_result, float timeout_sec) {
+    _on_result = on_result;
+    setCompleteTimeout(timeout_sec * 1000);
+    sendRequest(url);
 }
 
 void HttpRequester::clear() {
     HttpClientImp::clear();
-    _strRecvBody.clear();
-    _onResult = nullptr;
+    _res_body.clear();
+    _on_result = nullptr;
 }
 
 void HttpRequester::setOnResult(const HttpRequesterResult &onResult) {
-    _onResult = onResult;
+    _on_result = onResult;
 }
 
-
-}//namespace mediakit
+} // namespace mediakit

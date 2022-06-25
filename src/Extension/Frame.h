@@ -16,9 +16,6 @@
 #include "Util/RingBuffer.h"
 #include "Network/Socket.h"
 
-using namespace std;
-using namespace toolkit;
-
 namespace mediakit{
 
 typedef enum {
@@ -31,20 +28,20 @@ typedef enum {
 } TrackType;
 
 #define CODEC_MAP(XX) \
-    XX(CodecH264,  TrackVideo, 0, "H264")          \
-    XX(CodecH265,  TrackVideo, 1, "H265")          \
-    XX(CodecAAC,   TrackAudio, 2, "mpeg4-generic") \
-    XX(CodecG711A, TrackAudio, 3, "PCMA")          \
-    XX(CodecG711U, TrackAudio, 4, "PCMU")          \
-    XX(CodecOpus,  TrackAudio, 5, "opus")          \
-    XX(CodecL16,   TrackAudio, 6, "L16")           \
-    XX(CodecVP8,   TrackVideo, 7, "VP8")           \
-    XX(CodecVP9,   TrackVideo, 8, "VP9")           \
-    XX(CodecAV1,   TrackVideo, 9, "AV1X")
+    XX(CodecH264,  TrackVideo, 0, "H264", PSI_STREAM_H264)          \
+    XX(CodecH265,  TrackVideo, 1, "H265", PSI_STREAM_H265)          \
+    XX(CodecAAC,   TrackAudio, 2, "mpeg4-generic", PSI_STREAM_AAC)  \
+    XX(CodecG711A, TrackAudio, 3, "PCMA", PSI_STREAM_AUDIO_G711A)   \
+    XX(CodecG711U, TrackAudio, 4, "PCMU", PSI_STREAM_AUDIO_G711U)   \
+    XX(CodecOpus,  TrackAudio, 5, "opus", PSI_STREAM_AUDIO_OPUS)    \
+    XX(CodecL16,   TrackAudio, 6, "L16", PSI_STREAM_RESERVED)       \
+    XX(CodecVP8,   TrackVideo, 7, "VP8", PSI_STREAM_VP8)            \
+    XX(CodecVP9,   TrackVideo, 8, "VP9", PSI_STREAM_VP9)            \
+    XX(CodecAV1,   TrackVideo, 9, "AV1X", PSI_STREAM_AV1)
 
 typedef enum {
     CodecInvalid = -1,
-#define XX(name, type, value, str) name = value,
+#define XX(name, type, value, str, mpeg_id) name = value,
     CODEC_MAP(XX)
 #undef XX
     CodecMax
@@ -53,7 +50,7 @@ typedef enum {
 /**
  * 字符串转媒体类型转
  */
-TrackType getTrackType(const string &str);
+TrackType getTrackType(const std::string &str);
 
 /**
  * 媒体类型转字符串
@@ -65,7 +62,7 @@ const char* getTrackString(TrackType type);
  * @param str
  * @return
  */
-CodecId getCodecId(const string &str);
+CodecId getCodecId(const std::string &str);
 
 /**
  * 获取编码器名称
@@ -106,7 +103,7 @@ public:
 /**
  * 帧类型的抽象接口
  */
-class Frame : public Buffer, public CodecInfo {
+class Frame : public toolkit::Buffer, public CodecInfo {
 public:
     typedef std::shared_ptr<Frame> Ptr;
     virtual ~Frame(){}
@@ -171,7 +168,7 @@ public:
 
 private:
     //对象个数统计
-    ObjectStatistic<Frame> _statistic;
+    toolkit::ObjectStatistic<Frame> _statistic;
 };
 
 class FrameImp : public Frame {
@@ -179,7 +176,22 @@ public:
     using Ptr = std::shared_ptr<FrameImp>;
 
     template<typename C=FrameImp>
-    static std::shared_ptr<C> create();
+    static std::shared_ptr<C> create() {
+#if 0
+        static ResourcePool<C> packet_pool;
+        static onceToken token([]() {
+            packet_pool.setSize(1024);
+        });
+        auto ret = packet_pool.obtain2();
+        ret->_buffer.clear();
+        ret->_prefix_size = 0;
+        ret->_dts = 0;
+        ret->_pts = 0;
+        return ret;
+#else
+        return std::shared_ptr<C>(new C());
+#endif
+    }
 
     char *data() const override{
         return (char *)_buffer.data();
@@ -218,18 +230,15 @@ public:
     uint32_t _dts = 0;
     uint32_t _pts = 0;
     size_t _prefix_size = 0;
-    BufferLikeString _buffer;
+    toolkit::BufferLikeString _buffer;
 
 private:
     //对象个数统计
-    ObjectStatistic<FrameImp> _statistic;
+    toolkit::ObjectStatistic<FrameImp> _statistic;
 
 protected:
-    friend class ResourcePool_l<FrameImp>;
+    friend class toolkit::ResourcePool_l<FrameImp>;
     FrameImp() = default;
-
-    template<typename C>
-    static std::shared_ptr<C> create_l();
 };
 
 /**
@@ -265,7 +274,7 @@ public:
     /**
      * 写入帧数据
      */
-    virtual void inputFrame(const Frame::Ptr &frame) = 0;
+    virtual bool inputFrame(const Frame::Ptr &frame) = 0;
 };
 
 /**
@@ -274,7 +283,7 @@ public:
 class FrameWriterInterfaceHelper : public FrameWriterInterface {
 public:
     typedef std::shared_ptr<FrameWriterInterfaceHelper> Ptr;
-    typedef std::function<void(const Frame::Ptr &frame)> onWriteFrame;
+    typedef std::function<bool(const Frame::Ptr &frame)> onWriteFrame;
 
     /**
      * inputFrame后触发onWriteFrame回调
@@ -288,9 +297,10 @@ public:
     /**
      * 写入帧数据
      */
-    void inputFrame(const Frame::Ptr &frame) override {
-        _writeCallback(frame);
+    bool inputFrame(const Frame::Ptr &frame) override {
+        return _writeCallback(frame);
     }
+
 private:
     onWriteFrame _writeCallback;
 };
@@ -310,7 +320,7 @@ public:
      */
     void addDelegate(const FrameWriterInterface::Ptr &delegate){
         //_delegates_write可能多线程同时操作
-        lock_guard<mutex> lck(_mtx);
+        std::lock_guard<std::mutex> lck(_mtx);
         _delegates_write.emplace(delegate.get(),delegate);
         _need_update = true;
     }
@@ -320,7 +330,7 @@ public:
      */
     void delDelegate(FrameWriterInterface *ptr){
         //_delegates_write可能多线程同时操作
-        lock_guard<mutex> lck(_mtx);
+        std::lock_guard<std::mutex> lck(_mtx);
         _delegates_write.erase(ptr);
         _need_update = true;
     }
@@ -328,18 +338,22 @@ public:
     /**
      * 写入帧并派发
      */
-    void inputFrame(const Frame::Ptr &frame) override{
+    bool inputFrame(const Frame::Ptr &frame) override{
         if(_need_update){
             //发现代理列表发生变化了，这里同步一次
-            lock_guard<mutex> lck(_mtx);
+            std::lock_guard<std::mutex> lck(_mtx);
             _delegates_read = _delegates_write;
             _need_update = false;
         }
 
         //_delegates_read能确保是单线程操作的
-        for(auto &pr : _delegates_read){
-            pr.second->inputFrame(frame);
+        bool ret = false;
+        for (auto &pr : _delegates_read) {
+            if (pr.second->inputFrame(frame)) {
+                ret = true;
+            }
         }
+        return ret;
     }
 
     /**
@@ -349,9 +363,9 @@ public:
         return _delegates_write.size();
     }
 private:
-    mutex _mtx;
-    map<void *,FrameWriterInterface::Ptr>  _delegates_read;
-    map<void *,FrameWriterInterface::Ptr>  _delegates_write;
+    std::mutex _mtx;
+    std::map<void *,FrameWriterInterface::Ptr>  _delegates_read;
+    std::map<void *,FrameWriterInterface::Ptr>  _delegates_write;
     bool _need_update = false;
 };
 
@@ -431,6 +445,67 @@ protected:
 };
 
 /**
+ * 该对象的功能是把一个不可缓存的帧转换成可缓存的帧
+ */
+class FrameCacheAble : public FrameFromPtr {
+public:
+    typedef std::shared_ptr<FrameCacheAble> Ptr;
+
+    FrameCacheAble(const Frame::Ptr &frame, bool force_key_frame = false) {
+        if (frame->cacheAble()) {
+            _frame = frame;
+            _ptr = frame->data();
+        } else {
+            _buffer = FrameImp::create();
+            _buffer->_buffer.assign(frame->data(), frame->size());
+            _ptr = _buffer->data();
+        }
+        _size = frame->size();
+        _dts = frame->dts();
+        _pts = frame->pts();
+        _prefix_size = frame->prefixSize();
+        _codec_id = frame->getCodecId();
+        _key = force_key_frame ? true : frame->keyFrame();
+        _config = frame->configFrame();
+        _drop_able = frame->dropAble();
+        _decode_able = frame->decodeAble();
+    }
+
+    ~FrameCacheAble() override = default;
+
+    /**
+     * 可以被缓存
+     */
+    bool cacheAble() const override {
+        return true;
+    }
+
+    bool keyFrame() const override{
+        return _key;
+    }
+
+    bool configFrame() const override{
+        return _config;
+    }
+
+    bool dropAble() const override {
+        return _drop_able;
+    }
+
+    bool decodeAble() const override {
+        return _decode_able;
+    }
+
+private:
+    bool _key;
+    bool _config;
+    bool _drop_able;
+    bool _decode_able;
+    Frame::Ptr _frame;
+    FrameImp::Ptr _buffer;
+};
+
+/**
  * 该对象可以把Buffer对象转换成可缓存的Frame对象
  */
 template <typename Parent>
@@ -446,7 +521,7 @@ public:
      * @param prefix 帧前缀长度
      * @param offset buffer有效数据偏移量
      */
-    FrameWrapper(const Buffer::Ptr &buf, uint32_t dts, uint32_t pts, size_t prefix, size_t offset) : Parent(buf->data() + offset, buf->size() - offset, dts, pts, prefix){
+    FrameWrapper(const toolkit::Buffer::Ptr &buf, uint32_t dts, uint32_t pts, size_t prefix, size_t offset) : Parent(buf->data() + offset, buf->size() - offset, dts, pts, prefix){
         _buf = buf;
     }
 
@@ -459,7 +534,7 @@ public:
      * @param offset buffer有效数据偏移量
      * @param codec 帧类型
      */
-    FrameWrapper(const Buffer::Ptr &buf, uint32_t dts, uint32_t pts, size_t prefix, size_t offset, CodecId codec) : Parent(codec, buf->data() + offset, buf->size() - offset, dts, pts, prefix){
+    FrameWrapper(const toolkit::Buffer::Ptr &buf, uint32_t dts, uint32_t pts, size_t prefix, size_t offset, CodecId codec) : Parent(codec, buf->data() + offset, buf->size() - offset, dts, pts, prefix){
         _buf = buf;
     }
 
@@ -471,7 +546,7 @@ public:
     }
 
 private:
-    Buffer::Ptr _buf;
+    toolkit::Buffer::Ptr _buf;
 };
 
 /**
@@ -479,7 +554,7 @@ private:
  */
 class FrameMerger {
 public:
-    using onOutput = function<void(uint32_t dts, uint32_t pts, const Buffer::Ptr &buffer, bool have_key_frame)>;
+    using onOutput = std::function<void(uint32_t dts, uint32_t pts, const toolkit::Buffer::Ptr &buffer, bool have_key_frame)>;
     using Ptr = std::shared_ptr<FrameMerger>;
     enum {
         none = 0,
@@ -491,16 +566,16 @@ public:
     ~FrameMerger() = default;
 
     void clear();
-    void inputFrame(const Frame::Ptr &frame, const onOutput &cb, BufferLikeString *buffer = nullptr);
+    bool inputFrame(const Frame::Ptr &frame, const onOutput &cb, toolkit::BufferLikeString *buffer = nullptr);
 
 private:
     bool willFlush(const Frame::Ptr &frame) const;
-    void doMerge(BufferLikeString &buffer, const Frame::Ptr &frame) const;
+    void doMerge(toolkit::BufferLikeString &buffer, const Frame::Ptr &frame) const;
 
 private:
     int _type;
     bool _have_decode_able_frame = false;
-    List<Frame::Ptr> _frame_cache;
+    toolkit::List<Frame::Ptr> _frame_cache;
 };
 
 }//namespace mediakit

@@ -16,12 +16,9 @@
 #include "Util/TimeTicker.h"
 #include "RtpCodec.h"
 
-using namespace std;
-using namespace toolkit;
-
 namespace mediakit {
 
-class RtspDemuxer : public Demuxer{
+class RtspDemuxer : public Demuxer {
 public:
     typedef std::shared_ptr<RtspDemuxer> Ptr;
     RtspDemuxer() = default;
@@ -30,7 +27,7 @@ public:
     /**
      * 加载sdp
      */
-    void loadSdp(const string &sdp);
+    void loadSdp(const std::string &sdp);
 
     /**
      * 开始解复用
@@ -38,13 +35,24 @@ public:
      * @return true 代表是i帧第一个rtp包
      */
     bool inputRtp(const RtpPacket::Ptr &rtp);
+
+    /**
+     * 获取节目总时长
+     * @return 节目总时长,单位秒
+     */
+    float getDuration() const;
+
 private:
     void makeAudioTrack(const SdpTrack::Ptr &audio);
     void makeVideoTrack(const SdpTrack::Ptr &video);
     void loadSdp(const SdpParser &parser);
+
 private:
-    RtpCodec::Ptr _audioRtpDecoder;
-    RtpCodec::Ptr _videoRtpDecoder;
+    float _duration = 0;
+    AudioTrack::Ptr _audio_track;
+    VideoTrack::Ptr _video_track;
+    RtpCodec::Ptr _audio_rtp_decoder;
+    RtpCodec::Ptr _video_rtp_decoder;
 };
 
 } /* namespace mediakit */

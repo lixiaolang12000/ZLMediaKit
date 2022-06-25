@@ -10,6 +10,8 @@
 
 #include "CommonRtp.h"
 
+using namespace mediakit;
+
 CommonRtpDecoder::CommonRtpDecoder(CodecId codec, size_t max_frame_size ){
     _codec = codec;
     _max_frame_size = max_frame_size;
@@ -68,7 +70,7 @@ CommonRtpEncoder::CommonRtpEncoder(CodecId codec, uint32_t ssrc, uint32_t mtu_si
         : CommonRtpDecoder(codec), RtpInfo(ssrc, mtu_size, sample_rate, payload_type, interleaved) {
 }
 
-void CommonRtpEncoder::inputFrame(const Frame::Ptr &frame){
+bool CommonRtpEncoder::inputFrame(const Frame::Ptr &frame){
     auto stamp = frame->pts();
     auto ptr = frame->data() + frame->prefixSize();
     auto len = frame->size() - frame->prefixSize();
@@ -88,4 +90,5 @@ void CommonRtpEncoder::inputFrame(const Frame::Ptr &frame){
         ptr += rtp_size;
         remain_size -= rtp_size;
     }
+    return len > 0;
 }

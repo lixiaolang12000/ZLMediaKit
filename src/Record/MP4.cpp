@@ -13,90 +13,11 @@
 #include "Util/File.h"
 #include "Util/logger.h"
 #include "Common/config.h"
-#include "fmp4-writer.h"
 
 using namespace toolkit;
+using namespace std;
+
 namespace mediakit {
-
-/////////////////////////////////////////////////mp4_writer_t/////////////////////////////////////////////////
-
-struct mp4_writer_t {
-    int is_fmp4;
-    union {
-        fmp4_writer_t *fmp4;
-        mov_writer_t *mov;
-    } u;
-};
-
-mp4_writer_t* mp4_writer_create(int is_fmp4, const struct mov_buffer_t *buffer, void* param, int flags){
-    mp4_writer_t *mp4 = (mp4_writer_t *) malloc(sizeof(mp4_writer_t));
-    mp4->is_fmp4 = is_fmp4;
-    if (is_fmp4) {
-        mp4->u.fmp4 = fmp4_writer_create(buffer, param, flags);
-    } else {
-        mp4->u.mov = mov_writer_create(buffer, param, flags);
-    }
-    return mp4;
-}
-
-void mp4_writer_destroy(mp4_writer_t* mp4){
-    if (mp4->is_fmp4) {
-        fmp4_writer_destroy(mp4->u.fmp4);
-    } else {
-        mov_writer_destroy(mp4->u.mov);
-    }
-    free(mp4);
-}
-
-int mp4_writer_add_audio(mp4_writer_t* mp4, uint8_t object, int channel_count, int bits_per_sample, int sample_rate, const void* extra_data, size_t extra_data_size){
-    if (mp4->is_fmp4) {
-        return fmp4_writer_add_audio(mp4->u.fmp4, object, channel_count, bits_per_sample, sample_rate, extra_data, extra_data_size);
-    } else {
-        return mov_writer_add_audio(mp4->u.mov, object, channel_count, bits_per_sample, sample_rate, extra_data, extra_data_size);
-    }
-}
-
-int mp4_writer_add_video(mp4_writer_t* mp4, uint8_t object, int width, int height, const void* extra_data, size_t extra_data_size){
-    if (mp4->is_fmp4) {
-        return fmp4_writer_add_video(mp4->u.fmp4, object, width, height, extra_data, extra_data_size);
-    } else {
-        return mov_writer_add_video(mp4->u.mov, object, width, height, extra_data, extra_data_size);
-    }
-}
-
-int mp4_writer_add_subtitle(mp4_writer_t* mp4, uint8_t object, const void* extra_data, size_t extra_data_size){
-    if (mp4->is_fmp4) {
-        return fmp4_writer_add_subtitle(mp4->u.fmp4, object, extra_data, extra_data_size);
-    } else {
-        return mov_writer_add_subtitle(mp4->u.mov, object, extra_data, extra_data_size);
-    }
-}
-
-int mp4_writer_write(mp4_writer_t* mp4, int track, const void* data, size_t bytes, int64_t pts, int64_t dts, int flags){
-    if (mp4->is_fmp4) {
-        return fmp4_writer_write(mp4->u.fmp4, track, data, bytes, pts, dts, flags);
-    } else {
-        return mov_writer_write(mp4->u.mov, track, data, bytes, pts, dts, flags);
-    }
-}
-
-int mp4_writer_save_segment(mp4_writer_t* mp4){
-    if (mp4->is_fmp4) {
-        return fmp4_writer_save_segment(mp4->u.fmp4);
-    } else {
-        return -1;
-    }
-}
-
-int mp4_writer_init_segment(mp4_writer_t* mp4){
-    if (mp4->is_fmp4) {
-        return fmp4_writer_init_segment(mp4->u.fmp4);
-    } else {
-        return -1;
-    }
-}
-
-/////////////////////////////////////////////////MP4FileIO/////////////////////////////////////////////////
 
 static struct mov_buffer_t s_io = {
         [](void *ctx, void *data, uint64_t bytes) {
@@ -107,13 +28,13 @@ static struct mov_buffer_t s_io = {
             MP4FileIO *thiz = (MP4FileIO *) ctx;
             return thiz->onWrite(data, bytes);
         },
-        [](void *ctx, uint64_t offset) {
+        [](void *ctx, int64_t offset) {
             MP4FileIO *thiz = (MP4FileIO *) ctx;
             return thiz->onSeek(offset);
         },
         [](void *ctx) {
             MP4FileIO *thiz = (MP4FileIO *) ctx;
-            return (uint64_t)thiz->onTell();
+            return (int64_t)thiz->onTell();
         }
 };
 
@@ -200,11 +121,11 @@ int MP4FileDisk::onWrite(const void *data, size_t bytes) {
     return bytes == fwrite(data, 1, bytes, _file.get()) ? 0 : ferror(_file.get());
 }
 
-int MP4FileDisk::onSeek(size_t offset) {
+int MP4FileDisk::onSeek(uint64_t offset) {
     return fseek64(_file.get(), offset, SEEK_SET);
 }
 
-size_t MP4FileDisk::onTell() {
+uint64_t MP4FileDisk::onTell() {
     return ftell64(_file.get());
 }
 
@@ -221,11 +142,11 @@ size_t MP4FileMemory::fileSize() const{
     return _memory.size();
 }
 
-size_t MP4FileMemory::onTell(){
+uint64_t MP4FileMemory::onTell(){
     return _offset;
 }
 
-int MP4FileMemory::onSeek(size_t offset){
+int MP4FileMemory::onSeek(uint64_t offset){
     if (offset > _memory.size()) {
         return -1;
     }

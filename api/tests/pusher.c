@@ -131,8 +131,8 @@ void API_CALL on_mk_play_data_func(void *user_data,int track_type, int codec_id,
             break;
         }
         case 2 : {
-            //aac
-            mk_media_input_aac(ctx->media, data, (int)len, dts, data);
+            //aac, aac头7个字节
+            mk_media_input_aac(ctx->media, (uint8_t*)data + 7, (int)len, dts, data);
             break;
         }
         case 3 : //g711a
@@ -185,6 +185,7 @@ int main(int argc, char *argv[]){
             .ini = NULL,
             .ini_is_path = 0,
             .log_level = 0,
+            .log_mask = LOG_CONSOLE,
             .ssl = NULL,
             .ssl_is_path = 1,
             .ssl_pwd = NULL,

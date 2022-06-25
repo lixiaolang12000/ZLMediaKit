@@ -45,10 +45,12 @@ static uint32_t addressToInt(const string &ip){
 
 std::shared_ptr<uint32_t> MultiCastAddressMaker::obtain(uint32_t max_try) {
     lock_guard<recursive_mutex> lck(_mtx);
-    GET_CONFIG(string, addrMinStr, MultiCast::kAddrMin);
-    GET_CONFIG(string, addrMaxStr, MultiCast::kAddrMax);
-    uint32_t addrMin = addressToInt(addrMinStr);
-    uint32_t addrMax = addressToInt(addrMaxStr);
+    GET_CONFIG_FUNC(uint32_t, addrMin, MultiCast::kAddrMin, [](const string &str) {
+        return addressToInt(str);
+    });
+    GET_CONFIG_FUNC(uint32_t, addrMax, MultiCast::kAddrMax, [](const string &str) {
+        return addressToInt(str);
+    });
 
     if (_addr > addrMax || _addr == 0) {
         _addr = addrMin;
@@ -130,6 +132,7 @@ RtpMultiCaster::RtpMultiCaster(SocketHelper &helper, const string &local_ip, con
         _udp_sock[i]->bindPeerAddr((struct sockaddr *) &peer);
     }
 
+    src->pause(false);
     _rtp_reader = src->getRing()->attach(helper.getPoller());
     _rtp_reader->setReadCB([this](const RtspMediaSource::RingDataType &pkt) {
         size_t i = 0;

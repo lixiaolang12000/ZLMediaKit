@@ -1,7 +1,5 @@
 ![logo](https://raw.githubusercontent.com/xia-chu/ZLMediaKit/master/www/logo.png)
 
-[english readme](https://github.com/xia-chu/ZLMediaKit/blob/master/README_en.md)
-
 # 一个基于C++11的高性能运营级流媒体服务框架
 
 [![license](http://img.shields.io/badge/license-MIT-green.svg)](https://github.com/xia-chu/ZLMediaKit/blob/master/LICENSE)
@@ -23,6 +21,10 @@
 - 提供完善的[restful api](https://github.com/xia-chu/ZLMediaKit/wiki/MediaServer%E6%94%AF%E6%8C%81%E7%9A%84HTTP-API)以及[web hook](https://github.com/xia-chu/ZLMediaKit/wiki/MediaServer%E6%94%AF%E6%8C%81%E7%9A%84HTTP-HOOK-API)，支持丰富的业务逻辑。
 - 打通了视频监控协议栈与直播协议栈，对RTSP/RTMP支持都很完善。
 - 全面支持H265/H264/AAC/G711/OPUS。
+- 功能完善，支持集群、按需转协议、按需推拉流、先播后推、断连续推等功能。
+- 极致性能，单机10W级别播放器，100Gb/s级别io带宽能力。
+- 极致体验，[独家特性](https://github.com/ZLMediaKit/ZLMediaKit/wiki/ZLMediakit%E7%8B%AC%E5%AE%B6%E7%89%B9%E6%80%A7%E4%BB%8B%E7%BB%8D)
+- [谁在使用zlmediakit?](https://github.com/ZLMediaKit/ZLMediaKit/issues/511)
 
 ## 项目定位
 
@@ -92,11 +94,17 @@
   - RTSP/RTMP/HTTP-FLV/WS-FLV支持MP4文件点播，支持seek
   - 支持H264/H265/AAC/G711/OPUS编码
   
-- WebRTC(体验)
+- WebRTC
   - 支持WebRTC推流，支持转其他协议
-  - 支持WebRTC播放，支持其他协议转WebRTC     
-  - 支持simulcast
-  - 支持rtx/nack
+  - 支持WebRTC播放，支持其他协议转WebRTC
+  - 支持双向echo test     
+  - 支持simulcast推流
+  - 支持上下行rtx/nack丢包重传
+  - **支持单端口、多线程、客户端网络连接迁移(开源界唯一)**。
+  - 支持TWCC rtcp动态调整码率
+  - 支持remb/pli/sr/rr rtcp
+  - 支持rtp扩展解析
+  - 支持GOP缓冲，webrtc播放秒开
   
 - 其他
   - 支持丰富的restful api以及web hook事件 
@@ -105,11 +113,13 @@
   - 支持流量统计、推拉流鉴权等事件
   - 支持虚拟主机,可以隔离不同域名
   - 支持按需拉流，无人观看自动关断拉流
-  - 支持先拉流后推流，提高及时推流画面打开率
+  - 支持先播放后推流，提高及时推流画面打开率
   - 提供c api sdk
   - 支持FFmpeg拉流代理任意格式的流
   - 支持http api生成并返回实时截图
-  - 支持按需解复用、转协议，当有人观看时才开启转协议
+  - 支持按需解复用、转协议，当有人观看时才开启转协议，降低cpu占用率
+  - 支持溯源模式的集群部署，溯源方式支持rtsp/rtmp/hls/http-ts, 边沿站支持hls, 源站支持多个(采用round robin方式溯源)
+  - rtsp/rtmp/webrtc推流异常断开后，可以在超时时间内重连推流，播放器无感知
   
 
 ## 编译以及测试
@@ -120,7 +130,7 @@
  你有三种方法使用ZLMediaKit，分别是：
 
  - 1、使用c api，作为sdk使用，请参考[这里](https://github.com/xia-chu/ZLMediaKit/tree/master/api/include).
- - 2、作为独立的流媒体服务器使用，不想做c/c++开发的，可以参考[restful api](https://github.com/xia-chu/ZLMediaKit/wiki/MediaServer%E6%94%AF%E6%8C%81%E7%9A%84HTTP-API)和[web hook](https://github.com/xia-chu/ZLMediaKit/wiki/MediaServer%E6%94%AF%E6%8C%81%E7%9A%84HTTP-HOOK-API).
+ - 2、作为独立的流媒体服务器使用，不想做c/c++开发的，可以参考 [restful api](https://github.com/xia-chu/ZLMediaKit/wiki/MediaServer支持的HTTP-API) 和 [web hook](https://github.com/xia-chu/ZLMediaKit/wiki/MediaServer支持的HTTP-HOOK-API ).
  - 3、如果想做c/c++开发，添加业务逻辑增加功能，可以参考这里的[测试程序](https://github.com/xia-chu/ZLMediaKit/tree/master/tests).
 
 ## Docker 镜像
@@ -128,6 +138,10 @@
 你可以从Docker Hub下载已经编译好的镜像并启动它：
 
 ```bash
+#此镜像为zlmediakit开发团队提供，推荐
+docker run -id -p 1935:1935 -p 8080:80 -p 8554:554 -p 10000:10000 -p 10000:10000/udp -p 8000:8000/udp zlmediakit/zlmediakit:Release.last
+
+#此镜像委托第三方提供
 docker run -id -p 1935:1935 -p 8080:80 -p 8554:554 -p 10000:10000 -p 10000:10000/udp panjjo/zlmediakit
 ```
 
@@ -140,13 +154,15 @@ bash build_docker_images.sh
 ## 合作项目
 
  - 可视化管理网站
-    - [一个非常漂亮的可视化后台管理系统](https://github.com/MingZhuLiu/ZLMediaServerManagent)
+    - [最新的前后端分离web项目,支持webrtc播放](https://github.com/langmansh/AKStreamNVR)
     - [基于ZLMediaKit主线的管理WEB网站](https://gitee.com/kkkkk5G/MediaServerUI) 
     - [基于ZLMediaKit分支的管理WEB网站](https://github.com/chenxiaolei/ZLMediaKit_NVR_UI)
+    - [一个非常漂亮的可视化后台管理系统](https://github.com/MingZhuLiu/ZLMediaServerManagent)
     
  - 流媒体管理平台
+   - [GB28181完整解决方案,自带web管理网站,支持webrtc、h265播放](https://github.com/648540858/wvp-GB28181-pro)
    - [功能强大的流媒体控制管理接口平台,支持GB28181](https://github.com/chatop2020/AKStream)
-   - [GB28181-2016网络视频平台](https://github.com/648540858/wvp-GB28181-pro)
+   - [Go实现的GB28181服务器](https://github.com/panjjo/gosip)
    - [node-js版本的GB28181平台](https://gitee.com/hfwudao/GB28181_Node_Http)
    - [Go实现的海康ehome服务器](https://github.com/tsingeye/FreeEhome)
 
@@ -154,7 +170,11 @@ bash build_docker_images.sh
    - [基于C SDK实现的推流客户端](https://github.com/hctym1995/ZLM_ApiDemo)
    - [C#版本的Http API与Hook](https://github.com/chengxiaosheng/ZLMediaKit.HttpApi)
    - [DotNetCore的RESTful客户端](https://github.com/MingZhuLiu/ZLMediaKit.DotNetCore.Sdk)
-
+   
+ - 播放器
+   - [基于wasm支持H265的播放器](https://github.com/numberwolf/h265web.js)
+   - [基于MSE的websocket-fmp4播放器](https://github.com/v354412101/wsPlayer) 
+   
 ## 授权协议
 
 本项目自有代码使用宽松的MIT协议，在保留版权信息的情况下可以自由应用于各自商用、非商业的项目。
@@ -165,7 +185,7 @@ bash build_docker_images.sh
 ## 联系方式
 
  - 邮箱：<1213642868@qq.com>(本项目相关或流媒体相关问题请走issue流程，否则恕不邮件答复)
- - QQ群：542509000
+ - QQ群：qq群号在wiki中，请阅读wiki后再加群
 
 ## 怎么提问？
 
@@ -200,37 +220,47 @@ bash build_docker_images.sh
 [γ瑞γミ](https://github.com/JerryLinGd)
 [linkingvision](https://www.linkingvision.com/)
 [茄子](https://github.com/taotaobujue2008)
-[好心情](<409257224@qq.com>)
+[好心情](mailto:409257224@qq.com)
 [浮沉](https://github.com/MingZhuLiu)
 [Xiaofeng Wang](https://github.com/wasphin)
 [doodoocoder](https://github.com/doodoocoder)
 [qingci](https://github.com/Colibrow)
 [swwheihei](https://github.com/swwheihei)
 [KKKKK5G](https://gitee.com/kkkkk5G)
-[Zhou Weimin](<zhouweimin@supremind.com>)
+[Zhou Weimin](mailto:zhouweimin@supremind.com)
 [Jim Jin](https://github.com/jim-king-2000)
-[西瓜丶](<392293307@qq.com>)
+[西瓜丶](mailto:392293307@qq.com)
 [MingZhuLiu](https://github.com/MingZhuLiu)
 [chengxiaosheng](https://github.com/chengxiaosheng)
-[big panda](<2381267071@qq.com>)
+[big panda](mailto:2381267071@qq.com)
 [tanningzhong](https://github.com/tanningzhong)
 [hctym1995](https://github.com/hctym1995)
 [hewenyuan](https://gitee.com/kingyuanyuan)
-[sunhui](<sunhui200475@163.com>)
-[mirs](fangpengcheng@bilibili.com>)
-[Kevin Cheng](kevin__cheng@outlook.com>)
-[Liu Jiang](root@oopy.org>)
+[sunhui](mailto:sunhui200475@163.com)
+[mirs](mailto:fangpengcheng@bilibili.com)
+[Kevin Cheng](mailto:kevin__cheng@outlook.com)
+[Liu Jiang](mailto:root@oopy.org)
 [along](https://github.com/alongl)
-[qingci](xpy66swsry@gmail.com>)
-[lyg1949](zh.ghlong@qq.com>)
-[zhlong](zh.ghlong@qq.com>)
-[大裤衩](3503207480@qq.com>)
-[droid.chow](droid.chow@gmail.com>)
+[qingci](mailto:xpy66swsry@gmail.com)
+[lyg1949](mailto:zh.ghlong@qq.com)
+[zhlong](mailto:zh.ghlong@qq.com)
+[大裤衩](mailto:3503207480@qq.com)
+[droid.chow](mailto:droid.chow@gmail.com)
 [陈晓林](https://github.com/musicwood)
 [CharleyWangHZ](https://github.com/CharleyWangHZ)
 [Johnny](https://github.com/johzzy)
 [DoubleX69](https://github.com/DoubleX69)
 [lawrencehj](https://github.com/lawrencehj)
+[yangkun](mailto:xyyangkun@163.com)
+[Xinghua Zhao](mailto:holychaossword@hotmail.com)
+[hejilin](https://github.com/brokensword2018)
+[rqb500](https://github.com/rqb500)
+[Alex](https://github.com/alexliyu7352)
+[Dw9](https://github.com/Dw9)
+[明月惊鹊](mailto:mingyuejingque@gmail.com)
+[cgm](mailto:2958580318@qq.com)
+[hejilin](mailto:1724010622@qq.com)
+[alexliyu7352](mailto:liyu7352@gmail.com)
 
 ## 使用案例
 

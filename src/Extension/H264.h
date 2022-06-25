@@ -14,12 +14,12 @@
 #include "Frame.h"
 #include "Track.h"
 #include "Util/base64.h"
+
 #define H264_TYPE(v) ((uint8_t)(v) & 0x1F)
-using namespace toolkit;
 
 namespace mediakit{
 
-bool getAVCInfo(const string &strSps,int &iVideoWidth, int &iVideoHeight, float &iVideoFps);
+bool getAVCInfo(const std::string &strSps,int &iVideoWidth, int &iVideoHeight, float &iVideoFps);
 void splitH264(const char *ptr, size_t len, size_t prefix, const std::function<void(const char *, size_t, size_t)> &cb);
 size_t prefixSize(const char *ptr, size_t len);
 
@@ -27,7 +27,7 @@ template<typename Parent>
 class H264FrameHelper : public Parent{
 public:
     friend class FrameImp;
-    friend class ResourcePool_l<H264FrameHelper>;
+    friend class toolkit::ResourcePool_l<H264FrameHelper>;
     using Ptr = std::shared_ptr<H264FrameHelper>;
 
     enum {
@@ -108,7 +108,7 @@ public:
      * @param sps_prefix_len 264头长度，可以为3个或4个字节，一般为0x00 00 00 01
      * @param pps_prefix_len 264头长度，可以为3个或4个字节，一般为0x00 00 00 01
      */
-    H264Track(const string &sps,const string &pps,int sps_prefix_len = 4,int pps_prefix_len = 4);
+    H264Track(const std::string &sps,const std::string &pps,int sps_prefix_len = 4,int pps_prefix_len = 4);
 
     /**
      * 构造h264类型的媒体
@@ -120,30 +120,30 @@ public:
     /**
      * 返回不带0x00 00 00 01头的sps/pps
      */
-    const string &getSps() const;
-    const string &getPps() const;
+    const std::string &getSps() const;
+    const std::string &getPps() const;
 
     bool ready() override;
     CodecId getCodecId() const override;
     int getVideoHeight() const override;
     int getVideoWidth() const override;
     float getVideoFps() const override;
-    void inputFrame(const Frame::Ptr &frame) override;
+    bool inputFrame(const Frame::Ptr &frame) override;
 
 private:
     void onReady();
     Sdp::Ptr getSdp() override;
     Track::Ptr clone() override;
-    void inputFrame_l(const Frame::Ptr &frame);
+    bool inputFrame_l(const Frame::Ptr &frame);
     void insertConfigFrame(const Frame::Ptr &frame);
 
 private:
-    bool _is_idr = false;
+    bool _latest_is_config_frame = false;
     int _width = 0;
     int _height = 0;
     float _fps = 0;
-    string _sps;
-    string _pps;
+    std::string _sps;
+    std::string _pps;
 };
 
 }//namespace mediakit

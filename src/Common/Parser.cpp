@@ -10,6 +10,9 @@
 
 #include "Parser.h"
 
+using namespace std;
+using namespace toolkit;
+
 namespace mediakit{
 
 string FindField(const char* buf, const char* start, const char *end ,size_t bufSize) {
@@ -49,16 +52,16 @@ void Parser::Parse(const char *buf) {
         }
         if (start == buf) {
             _strMethod = FindField(line.data(), NULL, " ");
-            _strFullUrl = FindField(line.data(), " ", " ");
-            auto args_pos = _strFullUrl.find('?');
+            auto strFullUrl = FindField(line.data(), " ", " ");
+            auto args_pos = strFullUrl.find('?');
             if (args_pos != string::npos) {
-                _strUrl = _strFullUrl.substr(0, args_pos);
-                _params = _strFullUrl.substr(args_pos + 1);
+                _strUrl = strFullUrl.substr(0, args_pos);
+                _params = strFullUrl.substr(args_pos + 1);
                 _mapUrlArgs = parseArgs(_params);
             } else {
-                _strUrl = _strFullUrl;
+                _strUrl = strFullUrl;
             }
-            _strTail = FindField(line.data(), (_strFullUrl + " ").data(), NULL);
+            _strTail = FindField(line.data(), (strFullUrl + " ").data(), NULL);
         } else {
             auto field = FindField(line.data(), NULL, ": ");
             auto value = FindField(line.data(), ": ", NULL);
@@ -82,8 +85,11 @@ const string &Parser::Url() const {
     return _strUrl;
 }
 
-const string &Parser::FullUrl() const {
-    return _strFullUrl;
+string Parser::FullUrl() const {
+    if (_params.empty()) {
+        return _strUrl;
+    }
+    return _strUrl + "?" + _params;
 }
 
 const string &Parser::Tail() const {
@@ -105,7 +111,6 @@ const string &Parser::Content() const {
 void Parser::Clear() {
     _strMethod.clear();
     _strUrl.clear();
-    _strFullUrl.clear();
     _params.clear();
     _strTail.clear();
     _strContent.clear();
@@ -117,12 +122,12 @@ const string &Parser::Params() const {
     return _params;
 }
 
-void Parser::setUrl(const string &url) {
-    this->_strUrl = url;
+void Parser::setUrl(string url) {
+    this->_strUrl = std::move(url);
 }
 
-void Parser::setContent(const string &content) {
-    this->_strContent = content;
+void Parser::setContent(string content) {
+    this->_strContent = std::move(content);
 }
 
 StrCaseMap &Parser::getHeader() const {
@@ -137,12 +142,19 @@ StrCaseMap Parser::parseArgs(const string &str, const char *pair_delim, const ch
     StrCaseMap ret;
     auto arg_vec = split(str, pair_delim);
     for (string &key_val : arg_vec) {
+        if (key_val.empty()) {
+            //忽略
+            continue;
+        }
         auto key = trim(FindField(key_val.data(), NULL, key_delim));
         if (!key.empty()) {
             auto val = trim(FindField(key_val.data(), key_delim, NULL));
             ret.emplace_force(key, val);
         } else {
-            ret.emplace_force(key_val, "");
+            trim(key_val);
+            if (!key_val.empty()) {
+                ret.emplace_force(key_val, "");
+            }
         }
     }
     return ret;

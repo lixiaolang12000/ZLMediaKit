@@ -13,6 +13,8 @@
 #include "Util/util.h"
 #include "Network/sockutil.h"
 #include "Network/TcpSession.h"
+
+using namespace std;
 using namespace toolkit;
 
 namespace toolkit {
@@ -21,8 +23,8 @@ namespace toolkit {
 
 namespace mediakit {
 
-recursive_mutex s_media_source_mtx;
-MediaSource::SchemaVhostAppStreamMap s_media_source_map;
+static recursive_mutex s_media_source_mtx;
+static MediaSource::SchemaVhostAppStreamMap s_media_source_map;
 
 string getOriginTypeString(MediaOriginType type){
 #define SWITCH_CASE(type) case MediaOriginType::type : return #type
@@ -83,6 +85,21 @@ const string& MediaSource::getApp() const {
 
 const string& MediaSource::getId() const {
     return _stream_id;
+}
+
+std::shared_ptr<void> MediaSource::getOwnership() {
+    if (_owned.test_and_set()) {
+        //已经被所有
+        return nullptr;
+    }
+    weak_ptr<MediaSource> weak_self = shared_from_this();
+    //确保返回的Ownership智能指针不为空，0x01无实际意义
+    return std::shared_ptr<void>((void *) 0x01, [weak_self](void *ptr) {
+        auto strong_self = weak_self.lock();
+        if (strong_self) {
+            strong_self->_owned.clear();
+        }
+    });
 }
 
 int MediaSource::getBytesSpeed(TrackType type){
@@ -220,13 +237,13 @@ bool MediaSource::isRecording(Recorder::type type){
     return listener->isRecording(*this, type);
 }
 
-void MediaSource::startSendRtp(const string &dst_url, uint16_t dst_port, const string &ssrc, bool is_udp, uint16_t src_port, const function<void(uint16_t local_port, const SockException &ex)> &cb){
+void MediaSource::startSendRtp(const MediaSourceEvent::SendRtpArgs &args, const std::function<void(uint16_t, const toolkit::SockException &)> cb) {
     auto listener = _listener.lock();
     if (!listener) {
         cb(0, SockException(Err_other, "尚未设置事件监听器"));
         return;
     }
-    return listener->startSendRtp(*this, dst_url, dst_port, ssrc, is_udp, src_port, cb);
+    return listener->startSendRtp(*this, args, cb);
 }
 
 bool MediaSource::stopSendRtp(const string &ssrc) {
@@ -288,7 +305,7 @@ void MediaSource::for_each_media(const function<void(const Ptr &src)> &cb,
     }
 }
 
-static MediaSource::Ptr find_l(const string &schema, const string &vhost_in, const string &app, const string &id, bool create_new) {
+static MediaSource::Ptr find_l(const string &schema, const string &vhost_in, const string &app, const string &id, bool from_mp4) {
     string vhost = vhost_in;
     GET_CONFIG(bool,enableVhost,General::kEnableVhost);
     if(vhost.empty() || !enableVhost){
@@ -303,7 +320,7 @@ static MediaSource::Ptr find_l(const string &schema, const string &vhost_in, con
     MediaSource::Ptr ret;
     MediaSource::for_each_media([&](const MediaSource::Ptr &src) { ret = std::move(const_cast<MediaSource::Ptr &>(src)); }, schema, vhost, app, id);
 
-    if(!ret && create_new && schema != HLS_SCHEMA){
+    if(!ret && from_mp4 && schema != HLS_SCHEMA){
         //未查找媒体源，则读取mp4创建一个
         //播放hls不触发mp4点播(因为HLS也可以用于录像，不是纯粹的直播)
         ret = MediaSource::createFromMP4(schema, vhost, app, id);
@@ -387,20 +404,20 @@ void MediaSource::findAsync(const MediaInfo &info, const std::shared_ptr<Session
     return findAsync_l(info, session, true, cb);
 }
 
-MediaSource::Ptr MediaSource::find(const string &schema, const string &vhost, const string &app, const string &id) {
-    return find_l(schema, vhost, app, id, false);
+MediaSource::Ptr MediaSource::find(const string &schema, const string &vhost, const string &app, const string &id, bool from_mp4) {
+    return find_l(schema, vhost, app, id, from_mp4);
 }
 
-MediaSource::Ptr MediaSource::find(const string &vhost, const string &app, const string &stream_id){
-    auto src = MediaSource::find(RTMP_SCHEMA, vhost, app, stream_id);
+MediaSource::Ptr MediaSource::find(const string &vhost, const string &app, const string &stream_id, bool from_mp4) {
+    auto src = MediaSource::find(RTMP_SCHEMA, vhost, app, stream_id, from_mp4);
     if (src) {
         return src;
     }
-    src = MediaSource::find(RTSP_SCHEMA, vhost, app, stream_id);
+    src = MediaSource::find(RTSP_SCHEMA, vhost, app, stream_id, from_mp4);
     if (src) {
         return src;
     }
-    return MediaSource::find(HLS_SCHEMA, vhost, app, stream_id);
+    return MediaSource::find(HLS_SCHEMA, vhost, app, stream_id, from_mp4);
 }
 
 void MediaSource::emitEvent(bool regist){
@@ -418,7 +435,16 @@ void MediaSource::regist() {
     {
         //减小互斥锁临界区
         lock_guard<recursive_mutex> lock(s_media_source_mtx);
-        s_media_source_map[_schema][_vhost][_app][_stream_id] = shared_from_this();
+        auto &ref = s_media_source_map[_schema][_vhost][_app][_stream_id];
+        auto src = ref.lock();
+        if (src) {
+            if (src.get() == this) {
+                return;
+            }
+            //增加判断, 防止当前流已注册时再次注册
+            throw std::invalid_argument("media source already existed:" + _schema + "/" + _vhost + "/" + _app + "/" + _stream_id);
+        }
+        ref = shared_from_this();
     }
     emitEvent(true);
 }
@@ -694,12 +720,12 @@ vector<Track::Ptr> MediaSourceEventInterceptor::getMediaTracks(MediaSource &send
     return listener->getMediaTracks(sender, trackReady);
 }
 
-void MediaSourceEventInterceptor::startSendRtp(MediaSource &sender, const string &dst_url, uint16_t dst_port, const string &ssrc, bool is_udp, uint16_t src_port, const function<void(uint16_t local_port, const SockException &ex)> &cb){
+void MediaSourceEventInterceptor::startSendRtp(MediaSource &sender, const MediaSourceEvent::SendRtpArgs &args, const std::function<void(uint16_t, const toolkit::SockException &)> cb) {
     auto listener = _listener.lock();
     if (listener) {
-        listener->startSendRtp(sender, dst_url, dst_port, ssrc, is_udp, src_port, cb);
+        listener->startSendRtp(sender, args, cb);
     } else {
-        MediaSourceEvent::startSendRtp(sender, dst_url, dst_port, ssrc, is_udp, src_port, cb);
+        MediaSourceEvent::startSendRtp(sender, args, cb);
     }
 }
 

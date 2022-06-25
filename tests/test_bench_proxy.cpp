@@ -132,10 +132,13 @@ int main(int argc, char *argv[]) {
         mINI::Instance()[General::kFMP4Demand] = demand;
 
         map<string, PlayerProxy::Ptr> proxyMap;
+        ProtocolOption option;
+        option.enable_hls = false;
+        option.enable_mp4 = false;
         for (auto i = 0; i < proxy_count; ++i) {
             auto stream = to_string(i);
-            PlayerProxy::Ptr player(new PlayerProxy(DEFAULT_VHOST, "live", stream, false, false));
-            (*player)[kRtpType] = rtp_type;
+            PlayerProxy::Ptr player(new PlayerProxy(DEFAULT_VHOST, "live", stream, option));
+            (*player)[Client::kRtpType] = rtp_type;
             player->play(in_url);
             proxyMap.emplace(stream, player);
             //休眠后再启动下一个拉流代理，防止短时间海量链接
