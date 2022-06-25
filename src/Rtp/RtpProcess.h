@@ -76,6 +76,7 @@ protected:
     MediaOriginType getOriginType(MediaSource &sender) const override;
     std::string getOriginUrl(MediaSource &sender) const override;
     std::shared_ptr<SockInfo> getOriginSock(MediaSource &sender) const override;
+    toolkit::EventPoller::Ptr getOwnerPoller(MediaSource &sender) override;
 
 private:
     void emitOnPublish();
@@ -84,7 +85,7 @@ private:
 private:
     uint32_t _dts = 0;
     uint64_t _total_bytes = 0;
-    struct sockaddr _addr{0};
+    std::unique_ptr<sockaddr_storage> _addr;
     toolkit::Socket::Ptr _sock;
     MediaInfo _media_info;
     toolkit::Ticker _last_frame_time;

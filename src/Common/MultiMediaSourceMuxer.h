@@ -52,6 +52,9 @@ public:
 
     //hls录制保存路径
     std::string hls_save_path;
+
+    //断连续推延时，单位毫秒，默认采用配置文件
+    uint32_t continue_push_ms;
 };
 
 class MultiMediaSourceMuxer : public MediaSourceEventInterceptor, public MediaSink, public std::enable_shared_from_this<MultiMediaSourceMuxer>{
@@ -177,7 +180,6 @@ private:
     std::weak_ptr<Listener> _track_listener;
     std::function<std::string()> _get_origin_url;
 #if defined(ENABLE_RTPPROXY)
-    std::mutex _rtp_sender_mtx;
     std::unordered_map<std::string, RtpSender::Ptr> _rtp_sender;
 #endif //ENABLE_RTPPROXY
 

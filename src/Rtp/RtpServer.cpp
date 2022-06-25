@@ -53,7 +53,7 @@ public:
             }
             if (!strong_self->_rtcp_addr) {
                 //只设置一次rtcp对端端口
-                strong_self->_rtcp_addr = std::make_shared<struct sockaddr>();
+                strong_self->_rtcp_addr = std::make_shared<struct sockaddr_storage>();
                 memcpy(strong_self->_rtcp_addr.get(), addr, addr_len);
             }
             auto rtcps = RtcpHeader::loadFromBytes(buf->data(), buf->size());
@@ -71,10 +71,13 @@ private:
         }
         _ticker.resetTime();
 
-        auto rtcp_addr = _rtcp_addr.get();
+        auto rtcp_addr = (struct sockaddr *)_rtcp_addr.get();
         if (!rtcp_addr) {
             //默认的，rtcp端口为rtp端口+1
-            ((sockaddr_in *) addr)->sin_port = htons(ntohs(((sockaddr_in *) addr)->sin_port) + 1);
+            switch(addr->sa_family){
+                case AF_INET: ((sockaddr_in *) addr)->sin_port = htons(ntohs(((sockaddr_in *) addr)->sin_port) + 1); break;
+                case AF_INET6: ((sockaddr_in6 *) addr)->sin6_port = htons(ntohs(((sockaddr_in6 *) addr)->sin6_port) + 1); break;
+            }
             //未收到rtcp打洞包时，采用默认的rtcp端口
             rtcp_addr = addr;
         }
@@ -85,7 +88,7 @@ private:
     Ticker _ticker;
     Socket::Ptr _rtcp_sock;
     uint32_t _sample_rate;
-    std::shared_ptr<struct sockaddr> _rtcp_addr;
+    std::shared_ptr<struct sockaddr_storage> _rtcp_addr;
 };
 
 void RtpServer::start(uint16_t local_port, const string &stream_id, bool enable_tcp, const char *local_ip, bool re_use_port, uint32_t ssrc) {
@@ -96,15 +99,12 @@ void RtpServer::start(uint16_t local_port, const string &stream_id, bool enable_
         //随机端口，rtp端口采用偶数
         auto pair = std::make_pair(rtp_socket, rtcp_socket);
         makeSockPair(pair, local_ip, re_use_port);
-        //取偶数端口
-        rtp_socket = pair.first;
-        rtcp_socket = pair.second;
     } else if (!rtp_socket->bindUdpSock(local_port, local_ip, re_use_port)) {
         //用户指定端口
         throw std::runtime_error(StrPrinter << "创建rtp端口 " << local_ip << ":" << local_port << " 失败:" << get_uv_errmsg(true));
     } else if (!rtcp_socket->bindUdpSock(rtp_socket->get_local_port() + 1, local_ip, re_use_port)) {
         // rtcp端口
-        throw std::runtime_error(StrPrinter << "创建rtcp端口 " << local_ip << ":" << local_port << " 失败:" << get_uv_errmsg(true));
+        throw std::runtime_error(StrPrinter << "创建rtcp端口 " << local_ip << ":" << rtp_socket->get_local_port() + 1 << " 失败:" << get_uv_errmsg(true));
     }
 
     //设置udp socket读缓存

@@ -38,6 +38,7 @@ string getOriginTypeString(MediaOriginType type){
         SWITCH_CASE(mp4_vod);
         SWITCH_CASE(device_chn);
         SWITCH_CASE(rtc_push);
+        SWITCH_CASE(srt_push);
         default : return "unknown";
     }
 }
@@ -64,6 +65,7 @@ MediaSource::MediaSource(const string &schema, const string &vhost, const string
     _app = app;
     _stream_id = stream_id;
     _create_stamp = time(NULL);
+    _default_poller = EventPollerPool::Instance().getPoller();
 }
 
 MediaSource::~MediaSource() {
@@ -213,11 +215,35 @@ bool MediaSource::close(bool force) {
     return listener->close(*this,force);
 }
 
-void MediaSource::onReaderChanged(int size) {
+int MediaSource::getLossRate(mediakit::TrackType type) {
+    auto listener = _listener.lock();
+    if (!listener) {
+        return -1;
+    }
+    return listener->getLossRate(*this, type);
+}
+
+toolkit::EventPoller::Ptr MediaSource::getOwnerPoller() {
+    toolkit::EventPoller::Ptr ret;
     auto listener = _listener.lock();
     if (listener) {
-        listener->onReaderChanged(*this, size);
+        ret = listener->getOwnerPoller(*this);
     }
+    return ret ? ret : _default_poller;
+}
+
+void MediaSource::onReaderChanged(int size) {
+    weak_ptr<MediaSource> weak_self = shared_from_this();
+    getOwnerPoller()->async([weak_self, size]() {
+        auto strong_self = weak_self.lock();
+        if (!strong_self) {
+            return;
+        }
+        auto listener = strong_self->_listener.lock();
+        if (listener) {
+            listener->onReaderChanged(*strong_self, size);
+        }
+    });
 }
 
 bool MediaSource::setupRecord(Recorder::type type, bool start, const string &custom_path, size_t max_second){
@@ -506,15 +532,9 @@ void MediaInfo::parse(const string &url_in){
     }
     auto split_vec = split(url.substr(schema_pos + 3), "/");
     if (split_vec.size() > 0) {
-        auto vhost = split_vec[0];
-        auto pos = vhost.find(":");
-        if (pos != string::npos) {
-            _host = _vhost = vhost.substr(0, pos);
-            _port = vhost.substr(pos + 1);
-        } else {
-            _host = _vhost = vhost;
-        }
-        if (_vhost == "localhost" || INADDR_NONE != inet_addr(_vhost.data())) {
+        splitUrl(split_vec[0], _host, _port);
+        _vhost = _host;
+         if (_vhost == "localhost" || isIP(_vhost.data())) {
             //如果访问的是localhost或ip，那么则为默认虚拟主机
             _vhost = DEFAULT_VHOST;
         }
@@ -695,6 +715,23 @@ void MediaSourceEventInterceptor::onRegist(MediaSource &sender, bool regist) {
         listener->onRegist(sender, regist);
     }
 }
+
+int MediaSourceEventInterceptor::getLossRate(MediaSource &sender, TrackType type){
+    auto listener = _listener.lock();
+    if (listener) {
+        return listener->getLossRate(sender, type);
+    }
+    return -1; //异常返回-1
+}
+
+toolkit::EventPoller::Ptr MediaSourceEventInterceptor::getOwnerPoller(MediaSource &sender) {
+    auto listener = _listener.lock();
+    if (listener) {
+        return listener->getOwnerPoller(sender);
+    }
+    return nullptr;
+}
+
 
 bool MediaSourceEventInterceptor::setupRecord(MediaSource &sender, Recorder::type type, bool start, const string &custom_path, size_t max_second) {
     auto listener = _listener.lock();

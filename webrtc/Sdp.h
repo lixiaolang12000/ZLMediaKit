@@ -490,26 +490,17 @@ public:
 
 class RtcSdpBase {
 public:
-    std::vector<SdpItem::Ptr> items;
+    void addItem(SdpItem::Ptr item) { items.push_back(std::move(item)); }
+    void addAttr(SdpItem::Ptr attr) {
+        auto item = std::make_shared<SdpAttr>();
+        item->detail = std::move(attr);
+        items.push_back(std::move(item));
+    }
 
-public:
     virtual ~RtcSdpBase() = default;
     virtual std::string toString() const;
+    void toRtsp();
 
-    int getVersion() const;
-    SdpOrigin getOrigin() const;
-    std::string getSessionName() const;
-    std::string getSessionInfo() const;
-    SdpTime getSessionTime() const;
-    SdpConnection getConnection() const;
-    SdpBandwidth getBandwidth() const;
-
-    std::string getUri() const;
-    std::string getEmail() const;
-    std::string getPhone() const;
-    std::string getTimeZone() const;
-    std::string getEncryptKey() const;
-    std::string getRepeatTimes() const;
     RtpDirection getDirection() const;
 
     template<typename cls>
@@ -534,8 +525,8 @@ public:
     template<typename cls>
     std::vector<cls> getAllItem(char key_c, const char *attr_key = nullptr) const {
         std::vector<cls> ret;
+        std::string key(1, key_c);
         for (auto item : items) {
-            std::string key(1, key_c);
             if (strcasecmp(item->getKey(), key.data()) == 0) {
                 if (!attr_key) {
                     auto c = std::dynamic_pointer_cast<cls>(item);
@@ -555,12 +546,29 @@ public:
         }
         return ret;
     }
+
+private:
+    std::vector<SdpItem::Ptr> items;
 };
 
 class RtcSessionSdp : public RtcSdpBase{
 public:
     using Ptr = std::shared_ptr<RtcSessionSdp>;
+    int getVersion() const;
+    SdpOrigin getOrigin() const;
+    std::string getSessionName() const;
+    std::string getSessionInfo() const;
+    SdpTime getSessionTime() const;
+    SdpConnection getConnection() const;
+    SdpBandwidth getBandwidth() const;
 
+    std::string getUri() const;
+    std::string getEmail() const;
+    std::string getPhone() const;
+    std::string getTimeZone() const;
+    std::string getEncryptKey() const;
+    std::string getRepeatTimes() const;
+    
     std::vector<RtcSdpBase> medias;
     void parse(const std::string &str);
     std::string toString() const override;
@@ -712,7 +720,7 @@ public:
     void setDefaultSetting(std::string ice_ufrag, std::string ice_pwd, RtpDirection direction, const SdpAttrFingerprint &fingerprint);
     void addCandidate(const SdpAttrCandidate &candidate, mediakit::TrackType type = mediakit::TrackInvalid);
 
-    std::shared_ptr<RtcSession> createAnswer(const RtcSession &offer);
+    std::shared_ptr<RtcSession> createAnswer(const RtcSession &offer) const;
 
     void setPlayRtspInfo(const std::string &sdp);
 
@@ -720,9 +728,9 @@ public:
     void enableREMB(bool enable = true, mediakit::TrackType type = mediakit::TrackInvalid);
 
 private:
-    void matchMedia(const std::shared_ptr<RtcSession> &ret, mediakit::TrackType type, const std::vector<RtcMedia> &medias, const RtcTrackConfigure &configure);
-    bool onCheckCodecProfile(const RtcCodecPlan &plan, mediakit::CodecId codec);
-    void onSelectPlan(RtcCodecPlan &plan, mediakit::CodecId codec);
+    void matchMedia(const std::shared_ptr<RtcSession> &ret, const RtcMedia &media) const;
+    bool onCheckCodecProfile(const RtcCodecPlan &plan, mediakit::CodecId codec) const;
+    void onSelectPlan(RtcCodecPlan &plan, mediakit::CodecId codec) const;
 
 private:
     RtcCodecPlan::Ptr _rtsp_video_plan;

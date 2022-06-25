@@ -26,11 +26,14 @@ ProtocolOption::ProtocolOption() {
     GET_CONFIG(bool, s_to_mp4, General::kPublishToMP4);
     GET_CONFIG(bool, s_enabel_audio, General::kEnableAudio);
     GET_CONFIG(bool, s_add_mute_audio, General::kAddMuteAudio);
+    GET_CONFIG(uint32_t, s_continue_push_ms, General::kContinuePushMS);
+
 
     enable_hls = s_to_hls;
     enable_mp4 = s_to_mp4;
     enable_audio = s_enabel_audio;
     add_mute_audio = s_add_mute_audio;
+    continue_push_ms = s_continue_push_ms;
 }
 
 static std::shared_ptr<MediaSinkInterface> makeRecorder(MediaSource &sender, const vector<Track::Ptr> &tracks, Recorder::type type, const string &custom_path, size_t max_second){
@@ -227,7 +230,6 @@ void MultiMediaSourceMuxer::startSendRtp(MediaSource &, const MediaSourceEvent::
             rtp_sender->addTrack(track);
         }
         rtp_sender->addTrackCompleted();
-        lock_guard<mutex> lck(strong_self->_rtp_sender_mtx);
         strong_self->_rtp_sender[args.ssrc] = rtp_sender;
     });
 #else
@@ -246,13 +248,11 @@ bool MultiMediaSourceMuxer::stopSendRtp(MediaSource &sender, const string &ssrc)
     }
     if (ssrc.empty()) {
         //关闭全部
-        lock_guard<mutex> lck(_rtp_sender_mtx);
         auto size = _rtp_sender.size();
         _rtp_sender.clear();
         return size;
     }
     //关闭特定的
-    lock_guard<mutex> lck(_rtp_sender_mtx);
     return _rtp_sender.erase(ssrc);
 #else
     return false;
@@ -337,7 +337,6 @@ void MultiMediaSourceMuxer::resetTracks() {
 #endif
 
 #if defined(ENABLE_RTPPROXY)
-    lock_guard<mutex> lck(_rtp_sender_mtx);
     for (auto &pr : _rtp_sender) {
         pr.second->resetTracks();
     }
@@ -444,7 +443,6 @@ bool MultiMediaSourceMuxer::onTrackFrame(const Frame::Ptr &frame_in) {
 #endif
 
 #if defined(ENABLE_RTPPROXY)
-    lock_guard<mutex> lck(_rtp_sender_mtx);
     for (auto &pr : _rtp_sender) {
         ret = pr.second->inputFrame(frame) ? true : ret;
     }

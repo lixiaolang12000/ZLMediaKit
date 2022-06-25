@@ -45,6 +45,7 @@ enum class MediaOriginType : uint8_t {
     mp4_vod,
     device_chn,
     rtc_push,
+    srt_push
 };
 
 std::string getOriginTypeString(MediaOriginType type);
@@ -77,6 +78,10 @@ public:
     virtual void onReaderChanged(MediaSource &sender, int size);
     //流注册或注销事件
     virtual void onRegist(MediaSource &sender, bool regist) {};
+    // 获取丢包率
+    virtual int getLossRate(MediaSource &sender, TrackType type) { return -1; }
+    // 获取所在线程
+    virtual toolkit::EventPoller::Ptr getOwnerPoller(MediaSource &sender) { return nullptr; }
 
     ////////////////////////仅供MultiMediaSourceMuxer对象继承////////////////////////
     // 开启或关闭录制
@@ -94,6 +99,8 @@ public:
         bool use_ps = true;
         //发送es流时指定是否只发送纯音频流
         bool only_audio = true;
+        //tcp被动方式
+        bool passive = false;
         // rtp payload type
         uint8_t pt = 96;
         // 指定rtp ssrc
@@ -140,6 +147,8 @@ public:
     std::vector<Track::Ptr> getMediaTracks(MediaSource &sender, bool trackReady = true) const override;
     void startSendRtp(MediaSource &sender, const SendRtpArgs &args, const std::function<void(uint16_t, const toolkit::SockException &)> cb) override;
     bool stopSendRtp(MediaSource &sender, const std::string &ssrc) override;
+    int getLossRate(MediaSource &sender, TrackType type) override;
+    toolkit::EventPoller::Ptr getOwnerPoller(MediaSource &sender) override;
 
 private:
     std::weak_ptr<MediaSourceEvent> _listener;
@@ -159,7 +168,7 @@ public:
     std::string _full_url;
     std::string _schema;
     std::string _host;
-    std::string _port;
+    uint16_t _port = 0;
     std::string _vhost;
     std::string _app;
     std::string _streamid;
@@ -293,6 +302,10 @@ public:
     void startSendRtp(const MediaSourceEvent::SendRtpArgs &args, const std::function<void(uint16_t, const toolkit::SockException &)> cb);
     // 停止发送ps-rtp
     bool stopSendRtp(const std::string &ssrc);
+    // 获取丢包率
+    int getLossRate(mediakit::TrackType type);
+    // 获取所在线程
+    toolkit::EventPoller::Ptr getOwnerPoller();
 
     ////////////////static方法，查找或生成MediaSource////////////////
 
@@ -331,6 +344,7 @@ private:
     std::string _app;
     std::string _stream_id;
     std::weak_ptr<MediaSourceEvent> _listener;
+    toolkit::EventPoller::Ptr _default_poller;
     //对象个数统计
     toolkit::ObjectStatistic<MediaSource> _statistic;
 };

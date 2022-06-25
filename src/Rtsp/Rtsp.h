@@ -123,7 +123,7 @@ public:
     //返回有效负载指针,跳过csrc、ext
     uint8_t* getPayloadData();
     //返回有效负载总长度,不包括csrc、ext、padding
-    size_t getPayloadSize(size_t rtp_size) const;
+    ssize_t getPayloadSize(size_t rtp_size) const;
     //打印调试信息
     std::string dumpString(size_t rtp_size) const;
 
@@ -253,27 +253,6 @@ private:
 };
 
 /**
- * 解析rtsp url的工具类
- */
-class RtspUrl{
-public:
-    bool _is_ssl;
-    uint16_t _port;
-    std::string _url;
-    std::string _user;
-    std::string _passwd;
-    std::string _host;
-
-public:
-    RtspUrl() = default;
-    ~RtspUrl() = default;
-    bool parse(const std::string &url);
-
-private:
-    bool setup(bool,const std::string &, const std::string &, const std::string &);
-};
-
-/**
 * rtsp sdp基类
 */
 class Sdp : public CodecInfo{
@@ -378,7 +357,7 @@ private:
 //创建rtp over tcp4个字节的头
 toolkit::Buffer::Ptr makeRtpOverTcpPrefix(uint16_t size, uint8_t interleaved);
 //创建rtp-rtcp端口对
-void makeSockPair(std::pair<toolkit::Socket::Ptr, toolkit::Socket::Ptr> &pair, const std::string &local_ip, bool re_use_port = false);
+void makeSockPair(std::pair<toolkit::Socket::Ptr, toolkit::Socket::Ptr> &pair, const std::string &local_ip, bool re_use_port = false, bool is_udp = true);
 //十六进制方式打印ssrc
 std::string printSSRC(uint32_t ui32Ssrc);
 

@@ -8,16 +8,9 @@
  * may be found in the AUTHORS file in the root of the source tree.
  */
 
-#include <signal.h>
 #include <string.h>
 #include "mk_mediakit.h"
 #include "mk_ffmpeg_source.h"
-
-#ifdef _WIN32
-#include "windows.h"
-#else
-#include "unistd.h"
-#endif
 
 typedef struct {
     mk_player player;
@@ -85,7 +78,12 @@ void API_CALL on_mk_media_source_regist_func(void *user_data, mk_media_source se
     }
 }
 
-void API_CALL on_mk_play_event_func(void *user_data, int err_code, const char *err_msg) {
+void API_CALL on_track_frame_out(void *user_data, mk_frame frame) {
+    Context *ctx = (Context *) user_data;
+    mk_media_input_frame(ctx->media, frame);
+}
+
+void API_CALL on_mk_play_event_func(void *user_data, int err_code, const char *err_msg, mk_track tracks[], int track_count) {
     Context *ctx = (Context *) user_data;
     release_media(&(ctx->media));
     release_pusher(&(ctx->pusher));
@@ -93,21 +91,10 @@ void API_CALL on_mk_play_event_func(void *user_data, int err_code, const char *e
         //success
         log_debug("play success!");
         ctx->media = mk_media_create("__defaultVhost__", "live", "test", 0, 0, 0);
-
-        int video_codec = mk_player_video_codec_id(ctx->player);
-        int audio_codec = mk_player_audio_codec_id(ctx->player);
-        if(video_codec != -1){
-            mk_media_init_video(ctx->media, video_codec,
-                                mk_player_video_width(ctx->player),
-                                mk_player_video_height(ctx->player),
-                                mk_player_video_fps(ctx->player));
-        }
-
-        if(audio_codec != -1){
-            mk_media_init_audio(ctx->media,audio_codec,
-                                mk_player_audio_samplerate(ctx->player),
-                                mk_player_audio_channel(ctx->player),
-                                mk_player_audio_bit(ctx->player));
+        int i;
+        for (i = 0; i < track_count; ++i) {
+            mk_media_init_track(ctx->media, tracks[i]);
+            mk_track_add_delegate(tracks[i], on_track_frame_out, user_data);
         }
         mk_media_init_complete(ctx->media);
         mk_media_set_on_regist(ctx->media, on_mk_media_source_regist_func, ctx);
@@ -158,7 +145,6 @@ void context_start(Context *ctx, const char *url_pull, const char *url_push){
     ctx->player = mk_player_create();
     mk_player_set_on_result(ctx->player, on_mk_play_event_func, ctx);
     mk_player_set_on_shutdown(ctx->player, on_mk_play_event_func, ctx);
-    mk_player_set_on_data(ctx->player, on_mk_play_data_func, ctx);
     mk_player_play(ctx->player, url_pull);
     strcpy(ctx->push_url, url_push);
 #else
@@ -178,8 +164,6 @@ void context_start(Context *ctx, const char *url_pull, const char *url_push){
 #endif
 }
 
-//create_player("http://hls.weathertv.cn/tslslive/qCFIfHB/hls/live_sd.m3u8");
-
 int main(int argc, char *argv[]){
     mk_config config = {
             .ini = NULL,
@@ -193,6 +177,11 @@ int main(int argc, char *argv[]){
     };
     mk_env_init(&config);
 
+    if (argc != 3) {
+        printf("Usage: ./pusher.c pull_url push_url\n");
+        return -1;
+    }
+
     //可以通过
     //rtmp://127.0.0.1/live/test
     //rtsp://127.0.0.1/live/test
@@ -200,7 +189,7 @@ int main(int argc, char *argv[]){
     //mk_rtsp_server_start(554, 0);
     //mk_rtmp_server_start(1935, 0);
 
-    Context *ctx = (Context *)malloc(sizeof(Context));
+    Context *ctx = (Context *) malloc(sizeof(Context));
     memset(ctx, 0, sizeof(Context));
 
     //推流给自己测试，当然也可以推流给其他服务器测试
@@ -214,6 +203,10 @@ int main(int argc, char *argv[]){
         sleep(1);
 #endif
     }
+    // context_start(ctx, argv[1], argv[2]);
+
+    log_info("enter any key to exit");
+    getchar();
 
     release_context(&ctx);
     return 0;

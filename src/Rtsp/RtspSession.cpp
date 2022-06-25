@@ -86,14 +86,13 @@ void RtspSession::onError(const SockException &err) {
         NoticeCenter::Instance().emitEvent(Broadcast::kBroadcastFlowReport, _media_info, _bytes_usage, duration, is_player, static_cast<SockInfo &>(*this));
     }
 
-    GET_CONFIG(uint32_t, continue_push_ms, General::kContinuePushMS);
     //如果是主动关闭的，那么不延迟注销
-    if (_push_src && continue_push_ms  && err.getErrCode() != Err_shutdown) {
+    if (_push_src && _continue_push_ms  && err.getErrCode() != Err_shutdown) {
         //取消所有权
         _push_src_ownership = nullptr;
         //延时10秒注销流
         auto push_src = std::move(_push_src);
-        getPoller()->doDelayTask(continue_push_ms, [push_src]() { return 0; });
+        getPoller()->doDelayTask(_continue_push_ms, [push_src]() { return 0; });
     }
 }
 
@@ -280,6 +279,7 @@ void RtspSession::handleReq_ANNOUNCE(const Parser &parser) {
         }
 
         _push_src->setListener(dynamic_pointer_cast<MediaSourceEvent>(shared_from_this()));
+        _continue_push_ms = option.continue_push_ms;
         sendRtspResponse("200 OK");
     };
 
@@ -705,19 +705,12 @@ void RtspSession::handleReq_Setup(const Parser &parser) {
         uint16_t ui16RtpPort = atoi(FindField(strClientPort.data(), NULL, "-").data());
         uint16_t ui16RtcpPort = atoi(FindField(strClientPort.data(), "-", NULL).data());
 
-        struct sockaddr_in peerAddr;
+        auto peerAddr = SockUtil::make_sockaddr(get_peer_ip().data(), ui16RtpPort);
         //设置rtp发送目标地址
-        peerAddr.sin_family = AF_INET;
-        peerAddr.sin_port = htons(ui16RtpPort);
-        peerAddr.sin_addr.s_addr = inet_addr(get_peer_ip().data());
-        bzero(&(peerAddr.sin_zero), sizeof peerAddr.sin_zero);
         pr.first->bindPeerAddr((struct sockaddr *) (&peerAddr));
 
         //设置rtcp发送目标地址
-        peerAddr.sin_family = AF_INET;
-        peerAddr.sin_port = htons(ui16RtcpPort);
-        peerAddr.sin_addr.s_addr = inet_addr(get_peer_ip().data());
-        bzero(&(peerAddr.sin_zero), sizeof peerAddr.sin_zero);
+        peerAddr = SockUtil::make_sockaddr(get_peer_ip().data(), ui16RtcpPort);
         pr.second->bindPeerAddr((struct sockaddr *) (&peerAddr));
 
         //尝试获取客户端nat映射地址
@@ -875,7 +868,7 @@ void RtspSession::handleReq_Pause(const Parser &parser) {
 
 void RtspSession::handleReq_Teardown(const Parser &parser) {
     sendRtspResponse("200 OK");
-    _push_src = nullptr;
+    //_push_src = nullptr;
     throw SockException(Err_shutdown,"recv teardown request");
 }
 
@@ -953,7 +946,7 @@ void RtspSession::onRtpSorted(RtpPacket::Ptr rtp, int track_idx) {
     }
 }
 
-void RtspSession::onRcvPeerUdpData(int interleaved, const Buffer::Ptr &buf, const struct sockaddr &addr) {
+void RtspSession::onRcvPeerUdpData(int interleaved, const Buffer::Ptr &buf, const struct sockaddr_storage &addr) {
     //这是rtcp心跳包，说明播放器还存活
     _alive_ticker.resetTime();
 
@@ -965,13 +958,13 @@ void RtspSession::onRcvPeerUdpData(int interleaved, const Buffer::Ptr &buf, cons
         } else if (!_udp_connected_flags.count(interleaved)) {
             //这是rtsp播放器的rtp打洞包
             _udp_connected_flags.emplace(interleaved);
-            _rtp_socks[interleaved / 2]->bindPeerAddr(&addr);
+            _rtp_socks[interleaved / 2]->bindPeerAddr((struct sockaddr *)&addr);
         }
     } else {
         //rtcp包
         if (!_udp_connected_flags.count(interleaved)) {
             _udp_connected_flags.emplace(interleaved);
-            _rtcp_socks[(interleaved - 1) / 2]->bindPeerAddr(&addr);
+            _rtcp_socks[(interleaved - 1) / 2]->bindPeerAddr((struct sockaddr *)&addr);
         }
         onRtcpPacket((interleaved - 1) / 2, _sdp_track[(interleaved - 1) / 2], buf->data(), buf->size());
     }
@@ -979,20 +972,20 @@ void RtspSession::onRcvPeerUdpData(int interleaved, const Buffer::Ptr &buf, cons
 
 void RtspSession::startListenPeerUdpData(int track_idx) {
     weak_ptr<RtspSession> weakSelf = dynamic_pointer_cast<RtspSession>(shared_from_this());
-    auto srcIP = inet_addr(get_peer_ip().data());
-    auto onUdpData = [weakSelf,srcIP](const Buffer::Ptr &buf, struct sockaddr *peer_addr, int interleaved){
+    auto peer_ip = get_peer_ip();
+    auto onUdpData = [weakSelf,peer_ip](const Buffer::Ptr &buf, struct sockaddr *peer_addr, int interleaved){
         auto strongSelf = weakSelf.lock();
         if (!strongSelf) {
             return false;
         }
 
-        if (((struct sockaddr_in *) peer_addr)->sin_addr.s_addr != srcIP) {
+        if (SockUtil::inet_ntoa(peer_addr) != peer_ip) {
             WarnP(strongSelf.get()) << ((interleaved % 2 == 0) ? "收到其他地址的rtp数据:" : "收到其他地址的rtcp数据:")
-                                    << SockUtil::inet_ntoa(((struct sockaddr_in *) peer_addr)->sin_addr);
+                                    << SockUtil::inet_ntoa(peer_addr);
             return true;
         }
 
-        struct sockaddr addr = *peer_addr;
+        struct sockaddr_storage addr = *((struct sockaddr_storage *)peer_addr);
         strongSelf->async([weakSelf, buf, addr, interleaved]() {
             auto strongSelf = weakSelf.lock();
             if (!strongSelf) {
@@ -1158,6 +1151,10 @@ string RtspSession::getOriginUrl(MediaSource &sender) const {
 
 std::shared_ptr<SockInfo> RtspSession::getOriginSock(MediaSource &sender) const {
     return const_cast<RtspSession *>(this)->shared_from_this();
+}
+
+toolkit::EventPoller::Ptr RtspSession::getOwnerPoller(MediaSource &sender) {
+    return getPoller();
 }
 
 void RtspSession::onBeforeRtpSorted(const RtpPacket::Ptr &rtp, int track_index){
