@@ -59,9 +59,9 @@
 
 //请遵循MIT协议，勿修改服务器声明
 #if !defined(ENABLE_VERSION)
-#define SERVER_NAME "ZLMediaKit-6.0(build in " __DATE__ " " __TIME__ ")"
+#define SERVER_NAME "landinglol.com"
 #else
-#define SERVER_NAME "ZLMediaKit(git hash:" COMMIT_HASH ",branch:" BRANCH_TIME ",build time:" __DATE__ " " __TIME__ ")"
+#define SERVER_NAME "landinglol.com"
 #endif
 
 #define VHOST_KEY "vhost"
