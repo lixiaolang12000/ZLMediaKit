@@ -4,7 +4,7 @@ set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
 set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")  
 # End set rpath
 
-﻿aux_source_directory(. TEST_SRC_LIST)
+aux_source_directory(. TEST_SRC_LIST)
 include_directories(${PROJECT_BINARY_DIR}/api)
 
 foreach(TEST_SRC ${TEST_SRC_LIST})
