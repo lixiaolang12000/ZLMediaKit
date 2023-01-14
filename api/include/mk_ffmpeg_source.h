@@ -35,7 +35,7 @@ API_EXPORT const char* API_CALL mk_add_ffmpeg_source(const char* src_url, const 
  * @param user_data 用户数据指针
  * @return 流的唯一标识
  */
-API_EXPORT const char* API_CALL mk_add_ffmpeg_source_cmd(const char* ffmpeg_cmd, const char* src_url, const char* dst_url, const char* ffmpeg_cmd, int timeout_ms, on_mk_ffmpeg_close cb, void* user_data);
+API_EXPORT const char* API_CALL mk_add_ffmpeg_source_cmd(const char* ffmpeg_cmd, const char* src_url, const char* dst_url, int timeout_ms, on_mk_ffmpeg_close cb, void* user_data);
 
 /**
  * 添加FFmpeg代理流
