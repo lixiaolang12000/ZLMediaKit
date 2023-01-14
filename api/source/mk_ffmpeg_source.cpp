@@ -165,7 +165,7 @@ const char* mk_add_ffmpeg_source_default(const char* src_url, const char* dst_ur
     }    
 }
 
-const char* mk_add_ffmpeg_source_cmd(const char* src_url, const char* dst_url, int timeout_ms, on_mk_ffmpeg_close cb, void* user_data) {
+const char* mk_add_ffmpeg_source_cmd(const char* ffmpeg_cmd, const char* src_url, const char* dst_url, int timeout_ms, on_mk_ffmpeg_close cb, void* user_data) {
 
     //const char *ffmpeg_cmd = "%s -rtsp_transport tcp  -i %s -vcodec copy -acodec copy -f flv %s";
     //const char *ffmpeg_cmd = "%s -re -rtsp_transport tcp -i %s -vcodec h264 -acodec copy -f flv %s";
